@@ -3,539 +3,449 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hệ thống Cảnh báo Lũ lụt IoT - Dashboard Map</title>
-    <!-- Tải Tailwind CSS cho giao diện đẹp và đáp ứng -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Tải Font Inter -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-    <!-- Tải Leaflet CSS cho bản đồ -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/SVSLvcEFoWc68aeY="
-        crossorigin=""/>
+    <title>Dashboard Giám Sát Lũ Lụt - Adafruit IO & Gauge</title>
     
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN cho biểu đồ lịch sử -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #111827; /* Tông màu tối (Dark Mode) */
-            min-height: 100vh;
-        }
-        #map {
-            height: 70vh; 
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .map-container {
+            position: relative;
             width: 100%;
-            border-radius: 0.75rem; 
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
-            border: 1px solid #374151; 
-            /* Đặt nền đen cho Map khi không có Tile Layer (Chỉ dùng Image Overlay) */
-            background-color: #000000; 
+            padding-bottom: 75%; /* Tỉ lệ 4:3 (75%) hoặc thay đổi tùy theo tỉ lệ ảnh của bạn */
+            height: 0;
+            overflow: hidden;
+            border-radius: 1rem;
         }
-        .data-card {
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-            background-color: #1f2937; 
-            color: #f3f4f6;
-            border-radius: 0.75rem;
+        .map-container img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
         }
-        .config-section, .chart-section {
-            background-color: #1f2937;
-            border-radius: 0.75rem;
-            border: 1px solid #374151;
+
+        /* --- STYLES CHO MARKER (VÒNG TRÒN ẢNH HƯỞNG) --- */
+        .sensor-marker {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease-in-out;
+            z-index: 10; /* Đặt marker lên trên vòng tròn ảnh hưởng */
         }
-        .leaflet-popup-content-wrapper, .leaflet-popup-tip {
-            background-color: #1f2937 !important;
-            color: #f3f4f6;
+        .sensor-marker-dot {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background-color: white;
+            border: 4px solid #10b981; /* Default: Emerald green */
+            box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.5);
+            transition: all 0.3s ease-in-out;
         }
-        .leaflet-popup-content a {
-            color: #6366f1;
+        
+        /* Vòng tròn ảnh hưởng gradient */
+        .influence-circle {
+            position: absolute;
+            transform: translate(-50%, -50%); /* Căn giữa vòng tròn ảnh hưởng */
+            border-radius: 50%;
+            opacity: 0.5;
+            transition: all 0.5s ease-in-out;
+            pointer-events: none; /* Không chặn click vào marker */
         }
-        /* Chiều cao của khu vực Sidebar bằng với Map trên Desktop */
-        .sidebar-container {
-             min-height: 70vh; /* Bằng với chiều cao của #map */
+        
+        /* --- STYLES CHO GAUGE (Biểu đồ hình tròn) --- */
+        .gauge-container {
+            width: 100%;
+            height: 120px;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .gauge {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: conic-gradient(
+                var(--gauge-color) 0% var(--gauge-percent), 
+                #e5e7eb var(--gauge-percent) 100%
+            );
+            position: relative;
+            transition: background 0.5s ease;
+        }
+        .gauge::before {
+            content: "";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 90px;
+            height: 90px;
+            background-color: white;
+            border-radius: 50%;
+        }
+        .gauge-label {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: var(--gauge-color);
+            z-index: 2;
         }
     </style>
 </head>
-<body class="p-4 md:p-8">
+<body class="p-4 lg:p-8">
 
-    <div class="max-w-7xl mx-auto">
-        
-        <!-- Header -->
-        <header class="mb-8 border-b border-gray-700 pb-4">
-            <div class="flex items-center justify-between">
-                <h1 class="text-3xl font-extrabold text-indigo-400">
-                    <svg class="inline-block w-8 h-8 mr-2 text-red-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4l-2 2"/></svg>
-                    HỆ THỐNG CẢNH BÁO MỨC NƯỚC SỚM (FWS)
-                </h1>
-                <p id="last-updated" class="text-sm font-medium text-gray-400">Cập nhật lần cuối: Chưa có dữ liệu</p>
-            </div>
-        </header>
-        
-        <!-- GLOBAL ALERT BAR -->
-        <div id="global-alert" class="hidden bg-red-800 p-4 rounded-lg mb-6 shadow-2xl text-white font-bold text-center">
-            <svg class="inline w-6 h-6 mr-2" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h18.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-            <span id="alert-message"></span>
-        </div>
+    <div class="w-full max-w-6xl mx-auto">
+        <h1 class="text-4xl font-bold text-center text-gray-800 mb-6 border-b pb-2">
+            Bản đồ giám sát mực nước
+        </h1>
 
-        <!-- MAIN LAYOUT: MAP and DATA CARDS (BỐ CỤC MỚI) -->
-        <main class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            <!-- Cột 1 & 2: Bản đồ (Chiếm 2/3 không gian) -->
-            <div class="lg:col-span-2">
-                <div id="map"></div>
-            </div>
-
-            <!-- Cột 3: Sidebar (Chiếm 1/3 không gian) -->
-            <div class="lg:col-span-1 space-y-6 sidebar-container">
-                
-                <!-- Nhóm 1: Thẻ Dữ liệu Chính (Trạng thái và Cảnh báo) -->
-                <!-- Sử dụng grid để đặt 2 thẻ cạnh nhau trên màn hình vừa và lớn -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-6"> 
+        <div class="flex flex-col lg:flex-row gap-6">
+            <!-- Vùng Bản Đồ Tĩnh -->
+            <div class="w-full lg:w-2/3">
+                <div class="map-container bg-gray-200 shadow-xl">
+                    <!-- THAY 'my_flood_map.png' BẰNG TÊN FILE ẢNH BẢN ĐỒ CỦA BẠN -->
+                    <img id="static-map-img" src="./iotmap" alt="Bản đồ Tùy chỉnh" onerror="this.src='https://placehold.co/800x600/60a5fa/ffffff?text=Bản+đồ+tĩnh+chưa+tải';" />
                     
-                    <!-- Thẻ Trạng thái và Kết nối -->
-                    <div id="status-card" class="data-card p-4 shadow-xl border-l-4 border-indigo-500">
-                        <div class="flex items-center space-x-3">
-                            <svg class="w-6 h-6 text-indigo-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3H6a2 2 0 0 0-2 2v2"/><path d="M14 3h4a2 2 0 0 1 2 2v2"/><path d="M14 21h4a2 2 0 0 0 2-2v-2"/><path d="M10 21H6a2 2 0 0 1-2-2v-2"/><path d="M8 12h8"/><path d="M12 2v20"/></svg>
-                            <div>
-                                <p class="text-sm font-medium text-gray-400">Trạng thái Kết nối</p>
-                                <p id="connection-status" class="text-xl font-extrabold mt-1 text-red-500">Đang Ngắt Kết Nối</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Thẻ Cảnh báo Trạm Nóng nhất -->
-                    <div id="hot-station-card" class="data-card p-4 shadow-xl border-l-4 border-red-500">
-                        <div class="flex items-center space-x-3">
-                            <svg class="w-6 h-6 text-red-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.76l1.32-9.14A2 2 0 0 0 14 9v0z"/></svg>
-                            <div>
-                                <p class="text-sm font-medium text-gray-400">Mực nước CAO NHẤT</p>
-                                <p id="highest-station-name" class="text-base font-extrabold mt-1 text-red-300">N/A</p>
-                                <p id="highest-water-level" class="text-2xl font-extrabold mt-1 text-red-500">0.0 cm</p>
-                            </div>
-                        </div>
-                    </div>
-
+                    <!-- Marker và Vòng tròn Ảnh hưởng sẽ được thêm tại đây -->
                 </div>
-                
-                <!-- Khu vực Cấu hình (Tách biệt và chi tiết hơn) -->
-                <div class="p-6 config-section shadow-xl">
-                    <h2 class="text-xl font-semibold mb-4 text-indigo-400 border-b border-gray-700 pb-2">Cấu hình & Kết nối IoT</h2>
-                    <div class="space-y-4">
-                        <div>
-                            <label for="aio-username" class="block text-sm font-medium text-gray-300">AIO Username:</label>
-                            <input type="text" id="aio-username" value="qua_nghe_win_1000" class="mt-1 block w-full rounded-md shadow-sm p-2 border border-gray-600 bg-gray-800 text-gray-100 focus:ring-indigo-500 focus:border-indigo-500">
-                        </div>
-                        <div>
-                            <label for="aio-key" class="block text-sm font-medium text-gray-300">AIO Key:</label>
-                            <input type="password" id="aio-key" value="aio_mcN9B6SVJy8rN0ZD0ED7AKAg773" class="mt-1 block w-full rounded-md shadow-sm p-2 border border-gray-600 bg-gray-800 text-gray-100 focus:ring-indigo-500 focus:border-indigo-500">
-                        </div>
-                         <div>
-                            <label for="mqtt-feed" class="block text-sm font-medium text-gray-300">Tên Feed Dữ liệu JSON:</label>
-                            <input type="text" id="mqtt-feed" value="flood_monitor" class="mt-1 block w-full rounded-md shadow-sm p-2 border border-gray-600 bg-gray-800 text-gray-100 focus:ring-indigo-500 focus:border-indigo-500">
-                            <p class="text-xs text-gray-500 mt-1">ESP32 gửi JSON tới feed này.</p>
-                        </div>
-                        <button onclick="reconnectMQTT()" class="w-full bg-indigo-600 text-white py-2 px-4 rounded-lg hover:bg-indigo-700 transition duration-150 font-semibold shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-900">
-                            Kết nối lại MQTT
-                        </button>
-                    </div>
+                <p id="last-updated" class="text-sm text-gray-500 mt-4 text-center">Đang tải dữ liệu từ Adafruit IO...</p>
+            </div>
+
+            <!-- Vùng Hiển Thị Chi Tiết/Biểu Đồ -->
+            <div id="sensor-detail-card" class="w-full lg:w-1/3 bg-white p-6 rounded-xl shadow-xl space-y-4">
+                <h2 class="text-2xl font-semibold text-gray-800 border-b pb-2 mb-4">
+                    Chi Tiết Điểm Đo
+                </h2>
+                <div id="gauge-container" class="text-center">
+                    <p class="text-gray-500">Chọn một điểm đo trên bản đồ để xem chi tiết.</p>
                 </div>
 
+                <div id="chart-container" class="mt-6 pt-4 border-t hidden">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-3">
+                        Lịch Sử 24 Giá Trị Gần Nhất
+                    </h3>
+                    <canvas id="historicalChart"></canvas>
+                </div>
             </div>
-        </main>
-        
-        <!-- CHART SECTION (Lịch sử - Luôn Full Width) -->
-        <section id="chart-section" class="mt-8 p-6 chart-section shadow-xl">
-            <h2 class="text-xl font-semibold mb-4 text-teal-400">
-                 <svg class="inline w-6 h-6 mr-2" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
-                Lịch sử Mức Nước - Trạm <span id="chart-station-name" class="font-extrabold">Chưa chọn</span> (24h gần nhất)
-            </h2>
-            <div class="relative h-96">
-                <canvas id="waterLevelChart"></canvas>
-            </div>
-        </section>
-
+        </div>
     </div>
 
-    <!-- Tải Leaflet JS -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        integrity="sha256-20n6cT5hYy+5r6nQ/cQp8n5vJ/L2sS5iPjJ1zP0Q6Sg="
-        crossorigin=""></script>
-    <!-- Tải Paho MQTT JavaScript Client (sử dụng WebSockets) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js"></script>
-    <!-- Tải Chart.js cho biểu đồ -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
-    
     <script>
-        // Thiết lập biến toàn cục
-        let client;
-        let map;
-        const stationMarkers = {};
-        const AIO_SERVER = 'io.adafruit.com';
-        const AIO_PORT_WS = 443; 
-        let waterLevelChart; // Biến giữ đối tượng Chart.js
+        // --- CẤU HÌNH ADAFRUIT IO & THIẾT BỊ (THAY THẾ BẰNG THÔNG TIN THỰC TẾ CỦA BẠN) ---
+        const AIO_USERNAME = "quagmire_win1000"; // <-- THAY TÊN NGƯỜI DÙNG CỦA BẠN
+        const UPDATE_INTERVAL_MS = 15000; // Làm mới mỗi 15 giây
+        const HISTORY_LIMIT = 24; // Lấy 24 điểm dữ liệu lịch sử
+        
+        // Mức cảnh báo: 60 (vàng), Mức nguy hiểm: 85 (đỏ)
+        const WARNING_THRESHOLD = 60;
+        const DANGER_THRESHOLD = 85;
 
-        // Dữ liệu trạm cố định
-        const FIXED_STATIONS = [
-            { id: 'DN_001', name: 'Trạm Cầu Sông Hàn', lat: 16.0620, lon: 108.2238, currentLevel: 0, marker: null, color: '#10b981' },
-            { id: 'DN_002', name: 'Trạm An Hải Đông', lat: 16.0592, lon: 108.2325, currentLevel: 0, marker: null, color: '#10b981' },
-            { id: 'QN_003', name: 'Trạm Hòa Khánh', lat: 16.0825, lon: 108.1500, currentLevel: 0, marker: null, color: '#10b981' },
+        // Định nghĩa các điểm đo trên bản đồ
+        const SENSORS = [
+            {
+                id: 'sensor-a',
+                name: "Điểm đo 1",
+                feedKey: "sensor1data", // <-- THAY FEED KEY 1 CỦA BẠN
+                // Tọa độ tương đối trên ảnh (0-100)
+                map_x: 35, 
+                map_y: 50,
+                unit: "cm",
+                max_level: 120, // Mực nước tối đa thực tế (để tính Gauge)
+                warning_level: 60,
+                danger_level: 90,
+            },
+            {
+                id: 'sensor-b',
+                name: "Điểm đo 2",
+                feedKey: "sensor2data", // <-- THAY FEED KEY 2 CỦA BẠN
+                // Tọa độ tương đối trên ảnh (0-100)
+                map_x: 75, 
+                map_y: 70,
+                unit: "cm",
+                max_level: 80, // Mực nước tối đa thực tế
+                warning_level: 50,
+                danger_level: 70,
+            }
         ];
 
+        let currentActiveChart = null; // Lưu trữ đối tượng Chart.js
 
-        // Tải các giá trị cấu hình từ input
-        function getConfig() {
-            return {
-                username: document.getElementById('aio-username').value,
-                key: document.getElementById('aio-key').value,
-                mqttFeed: document.getElementById('mqtt-feed').value,
-            };
-        }
+        // --- HÀM TẠO VÀ CẬP NHẬT GAUGE ---
 
-        // ---------- HÀM XÁC ĐỊNH STYLE VÒNG TRÒN (GRADIENT MÀU) ----------
-        function getWaterLevelStyle(level) {
-            let color, radius, alertText = null;
+        /**
+         * Lấy màu sắc và thông báo dựa trên mực nước hiện tại
+         */
+        function getStatusInfo(current, max, warning, danger) {
+            const level = (current / max) * 100;
+            let color, status;
 
-            if (level <= 50) { // An toàn: Dưới 50 cm
-                color = '#10b981'; // Teal-500 (Xanh lá)
-                radius = 300; 
-                alertText = 'An toàn';
-            } else if (level <= 100) { // Cảnh báo: 51 - 100 cm
-                color = '#fbbf24'; // Amber-400 (Vàng)
-                radius = 600; 
-                alertText = 'Cảnh báo cấp 1';
-            } else { // Nguy hiểm: Trên 100 cm
-                color = '#ef4444'; // Red-500 (Đỏ)
-                radius = 1000; 
-                alertText = 'NGUY HIỂM CẤP 2';
+            if (level >= (danger / max) * 100) {
+                color = '#ef4444'; // Red
+                status = 'NGUY HIỂM CAO';
+            } else if (level >= (warning / max) * 100) {
+                color = '#f59e0b'; // Amber/Orange
+                status = 'CẢNH BÁO';
+            } else {
+                color = '#10b981'; // Emerald Green
+                status = 'AN TOÀN';
             }
             
-            return {
-                color: color,
-                fillColor: color,
-                fillOpacity: 0.5,
-                radius: radius, 
-                alert: alertText
-            };
+            // Tính phần trăm cho Gauge (từ 0 đến 100)
+            const gaugePercent = Math.min(100, (current / max) * 100).toFixed(2);
+
+            return { color, status, gaugePercent };
         }
 
-        // ---------- KHỞI TẠO BẢN ĐỒ LEAFLET ----------
-        function initMap() {
-            // Khởi tạo bản đồ với vị trí tập trung mặc định
-            map = L.map('map').setView([16.06, 108.22], 13); 
-
-            // =========================================================================
-            // *** PHẦN TÙY CHỈNH: THÊM BẢN ĐỒ CỦA BẠN DƯỚI DẠNG LỚP PHỦ HÌNH ẢNH ***
-            // =========================================================================
-            
-            // 1. THAY THẾ URL NÀY BẰNG URL HÌNH ẢNH BẢN ĐỒ TÙY CHỈNH CỦA BẠN (Ví dụ: từ Google Drive, Dropbox, hoặc một server ảnh)
-            const customImageUrl = 'https://placehold.co/1000x800/222222/ffffff?text=CUSTOM+FLOOD+MAP+HERE'; 
-            
-            // 2. CẬP NHẬT TỌA ĐỘ GÓC (BOUNDS) CHO HÌNH ẢNH
-            // Tọa độ này phải khớp với 4 góc thực tế của hình ảnh trên bản đồ.
-            // Ví dụ này là khu vực Đà Nẵng:
-            const imageBounds = [
-                [16.03, 108.18], // Góc Tây Nam (South West - lat thấp nhất, lon thấp nhất)
-                [16.09, 108.26]  // Góc Đông Bắc (North East - lat cao nhất, lon cao nhất)
-            ]; 
-            
-            // Thêm lớp phủ hình ảnh
-            L.imageOverlay(customImageUrl, imageBounds).addTo(map);
-            
-            // Đảm bảo Map tập trung vào khu vực của Image Overlay
-            map.fitBounds(imageBounds); 
-            // =========================================================================
-            // *** XÓA LỚP OSM MẶC ĐỊNH (để chỉ dùng bản đồ tùy chỉnh của bạn) ***
-            // =========================================================================
-
-
-            // Khởi tạo các Marker cố định ban đầu
-            FIXED_STATIONS.forEach(station => {
-                const style = getWaterLevelStyle(station.currentLevel);
-                
-                const circle = L.circle([station.lat, station.lon], style).addTo(map);
-                
-                const popupContent = `
-                    <h3 class="font-bold text-lg text-indigo-400">${station.name} (${station.id})</h3>
-                    <p class="text-sm">Vị trí: ${station.lat.toFixed(4)}, ${station.lon.toFixed(4)}</p>
-                    <p class="text-xl font-extrabold mt-2" style="color:${style.color};">Mức Nước: 0.0 cm</p>
-                    <p class="text-sm font-semibold">Trạng thái: ${style.alert}</p>
-                    <button class="bg-indigo-500 hover:bg-indigo-600 text-white text-xs px-2 py-1 rounded mt-2" onclick="fetchHistory('${station.id}')">Xem Biểu đồ 24h</button>
-                `;
-                
-                circle.bindPopup(popupContent);
-                
-                stationMarkers[station.id] = {
-                    circle: circle,
-                    data: station,
-                    fixedData: FIXED_STATIONS.find(s => s.id === station.id)
-                };
-            });
-        }
-        
-        // ---------- HÀM CẬP NHẬT TRẠM ĐO ----------
-        function updateStation(data) {
-            const { stationId, lat, lon, waterLevel } = data;
-            
-            if (!stationMarkers[stationId]) {
-                console.warn(`Station ID ${stationId} not found in FIXED_STATIONS. Ignoring or treating as transient.`);
-                return;
-            }
-
-            const marker = stationMarkers[stationId].circle;
-            const stationData = stationMarkers[stationId].fixedData;
-            
-            const style = getWaterLevelStyle(waterLevel);
-            
-            // 1. Cập nhật vị trí và style
-            marker.setLatLng([lat, lon]);
-            marker.setStyle(style);
-            marker.setRadius(style.radius);
-            stationMarkers[stationId].data.currentLevel = waterLevel; 
-            
-            // 2. Cập nhật Popup Content
-            const timestamp = new Date().toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit', second:'2-digit'});
-            
-            const popupContent = `
-                <h3 class="font-bold text-lg text-indigo-400">${stationData.name} (${stationId})</h3>
-                <p class="text-sm">Vị trí: ${lat.toFixed(4)}, ${lon.toFixed(4)}</p>
-                <p class="text-xl font-extrabold mt-2" style="color:${style.color};">Mức Nước: ${waterLevel.toFixed(1)} cm</p>
-                <p class="text-sm font-semibold">Trạng thái: ${style.alert}</p>
-                <p class="text-xs text-gray-400 mt-2">Cập nhật: ${timestamp}</p>
-                 <button class="bg-indigo-500 hover:bg-indigo-600 text-white text-xs px-2 py-1 rounded mt-2" onclick="fetchHistory('${stationId}')">Xem Biểu đồ 24h</button>
+        /**
+         * Tạo HTML cho Gauge và thông tin chi tiết
+         */
+        function createGaugeHTML(point, level, statusInfo) {
+            return `
+                <div class="space-y-4">
+                    <h3 class="text-2xl font-bold text-gray-800">${point.name}</h3>
+                    <p class="text-sm text-gray-500">Feed Key: ${point.feedKey}</p>
+                    <div class="gauge-container" style="--gauge-color: ${statusInfo.color}; --gauge-percent: ${statusInfo.gaugePercent}%;">
+                        <div class="gauge"></div>
+                        <span class="gauge-label">${statusInfo.gaugePercent}%</span>
+                    </div>
+                    <p class="text-4xl font-extrabold" style="color: ${statusInfo.color};">${level} ${point.unit}</p>
+                    <p class="text-lg font-semibold" style="color: ${statusInfo.color};">${statusInfo.status}</p>
+                    <p class="text-xs text-gray-400 mt-2">Mức tối đa: ${point.max_level} ${point.unit}</p>
+                </div>
             `;
-            marker.setPopupContent(popupContent);
-            
-            // 3. Cập nhật thanh cảnh báo chung và thẻ nóng nhất
-            updateAlertsAndHotStation(timestamp);
-            
-            // 4. Tự động tải lịch sử cho trạm vừa cập nhật
-            fetchHistory(stationId);
         }
 
-        // ---------- HÀM VẼ BIỂU ĐỒ LỊCH SỬ (CHART.JS) ----------
-        function renderChart(stationName, labels, data) {
-            document.getElementById('chart-station-name').textContent = stationName;
-            const ctx = document.getElementById('waterLevelChart').getContext('2d');
+        /**
+         * Hàm vẽ hoặc cập nhật biểu đồ Chart.js
+         */
+        function renderHistoricalChart(point, historyData) {
+            const chartCanvas = document.getElementById('historicalChart');
+            const dataValues = historyData.map(d => parseFloat(d.value)).reverse(); // Lấy giá trị, đảo ngược để gần nhất ở bên phải
+            const labels = historyData.map(d => {
+                const date = new Date(d.created_at);
+                // Hiển thị giờ và phút
+                return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+            }).reverse();
 
-            if (waterLevelChart) {
-                waterLevelChart.destroy(); // Hủy biểu đồ cũ nếu có
+            if (currentActiveChart) {
+                currentActiveChart.destroy(); // Xóa biểu đồ cũ
             }
 
-            waterLevelChart = new Chart(ctx, {
+            currentActiveChart = new Chart(chartCanvas, {
                 type: 'line',
                 data: {
                     labels: labels,
                     datasets: [{
-                        label: 'Mức Nước (cm)',
-                        data: data,
-                        borderColor: '#38bdf8', // Sky-400
-                        backgroundColor: 'rgba(56, 189, 248, 0.2)',
-                        borderWidth: 2,
-                        tension: 0.4,
+                        label: `Mực Nước (${point.unit})`,
+                        data: dataValues,
+                        borderColor: point.color || '#3b82f6', // Màu xanh dương mặc định
+                        tension: 0.3,
                         fill: true,
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
                     }]
                 },
                 options: {
                     responsive: true,
-                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: true },
+                        tooltip: { mode: 'index', intersect: false },
+                    },
                     scales: {
                         y: {
-                            title: { display: true, text: 'Mức Nước (cm)', color: '#9ca3af' },
-                            grid: { color: '#374151' },
-                            ticks: { color: '#e5e7eb' }
-                        },
-                        x: {
-                            title: { display: true, text: 'Thời gian', color: '#9ca3af' },
-                            grid: { color: '#374151' },
-                            ticks: { color: '#e5e7eb' }
-                        }
-                    },
-                    plugins: {
-                        legend: { display: false },
-                        title: {
-                            display: true,
-                            text: `Lịch sử Mức Nước - ${stationName}`,
-                            color: '#e5e7eb'
+                            beginAtZero: true,
+                            title: { display: true, text: point.unit }
                         }
                     }
                 }
             });
         }
-        
-        // ---------- HÀM GỌI API LẤY LỊCH SỬ TỪ ADAFRUIT IO ----------
-        async function fetchHistory(stationId) {
-            const config = getConfig();
-            const station = FIXED_STATIONS.find(s => s.id === stationId);
-            
-            if (!station) return;
-            
-            const url = `https://${AIO_SERVER}/api/v2/${config.username}/feeds/${config.mqttFeed}/data?limit=100`; // Lấy 100 điểm gần nhất
-            
-            document.getElementById('chart-station-name').textContent = `${station.name} (Đang tải...)`;
 
-            try {
-                const response = await fetch(url, {
-                    headers: {
-                        'X-AIO-Key': config.key
+
+        // --- CHỨC NĂNG LẤY DỮ LIỆU TỪ ADAFRUIT IO ---
+
+        /**
+         * Lấy dữ liệu từ Adafruit IO
+         * @param {string} feedKey - Feed Key
+         * @param {number} limit - Số lượng dữ liệu lịch sử cần lấy (1 = mới nhất)
+         * @returns {Promise<Array | object>} Dữ liệu từ API
+         */
+        async function fetchAdafruitData(feedKey, limit = 1) {
+            // Lấy dữ liệu lịch sử hoặc dữ liệu mới nhất
+            const endpoint = limit > 1 ? `data?limit=${limit}` : 'data/last';
+            const apiUrl = `https://io.adafruit.com/api/v2/${AIO_USERNAME}/feeds/${feedKey}/${endpoint}`;
+
+            // Hàm retry với exponential backoff
+            const maxRetries = 3;
+            let lastError = null;
+
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(apiUrl);
+                    
+                    if (!response.ok) {
+                        throw new Error(`Lỗi (${response.status}): Kiểm tra AIO Username/Feed Key.`);
                     }
+                    const data = await response.json();
+                    return data;
+                } catch (error) {
+                    lastError = error;
+                    if (i < maxRetries - 1) {
+                        const delay = Math.pow(2, i) * 1000; // 1s, 2s, 4s
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                    }
+                }
+            }
+            console.error(`[LỖI ADAFRUIT IO] Feed ${feedKey}: Không thể lấy dữ liệu sau ${maxRetries} lần thử.`, lastError.message);
+            return null;
+        }
+
+        /**
+         * Cập nhật Marker trên bản đồ (màu, kích thước, vị trí)
+         */
+        function updateMarkerVisuals(point, latestValue) {
+            const statusInfo = getStatusInfo(latestValue, point.max_level, point.warning_level, point.danger_level);
+            
+            // Tính kích thước vòng tròn ảnh hưởng (từ 40px đến 150px)
+            // Càng nguy hiểm (gaugePercent cao), kích thước càng lớn
+            const influenceSize = 40 + (parseFloat(statusInfo.gaugePercent) / 100) * 110; 
+            
+            const mapContainer = document.querySelector('.map-container');
+            const markerDiv = document.getElementById(`marker-${point.id}`);
+            const circleDiv = document.getElementById(`circle-${point.id}`);
+            const dotDiv = document.getElementById(`dot-${point.id}`);
+            
+            if (markerDiv && circleDiv && dotDiv) {
+                // 1. Vị trí Marker (căn chỉnh theo tọa độ 0-100)
+                markerDiv.style.left = `${point.map_x}%`;
+                markerDiv.style.top = `${point.map_y}%`;
+                
+                // 2. Cập nhật DOT (Icon)
+                dotDiv.style.borderColor = statusInfo.color;
+                
+                // 3. Cập nhật CIRCLE (Ảnh hưởng Gradient)
+                circleDiv.style.width = `${influenceSize}px`;
+                circleDiv.style.height = `${influenceSize}px`;
+                
+                // Thay đổi màu nền gradient của vòng tròn
+                circleDiv.style.backgroundImage = `radial-gradient(circle, rgba(255, 255, 255, 0.9) 0%, ${statusInfo.color} 30%, rgba(255, 255, 255, 0.1) 80%)`;
+                circleDiv.style.opacity = Math.min(0.9, 0.4 + (parseFloat(statusInfo.gaugePercent) / 100) * 0.5); // Tăng opacity theo mức độ nguy hiểm
+            }
+        }
+
+        // --- KHỞI TẠO MARKER TRÊN BẢN ĐỒ ---
+        function initializeMarkers() {
+            const mapContainer = document.querySelector('.map-container');
+            
+            SENSORS.forEach(point => {
+                // 1. Tạo Vòng tròn Ảnh hưởng Gradient
+                const circleDiv = document.createElement('div');
+                circleDiv.id = `circle-${point.id}`;
+                circleDiv.className = 'influence-circle';
+                circleDiv.style.left = `${point.map_x}%`;
+                circleDiv.style.top = `${point.map_y}%`;
+                mapContainer.appendChild(circleDiv);
+
+                // 2. Tạo Marker Dot
+                const markerDiv = document.createElement('div');
+                markerDiv.id = `marker-${point.id}`;
+                markerDiv.className = 'sensor-marker';
+                markerDiv.style.left = `${point.map_x}%`;
+                markerDiv.style.top = `${point.map_y}%`;
+                
+                const dotDiv = document.createElement('div');
+                dotDiv.id = `dot-${point.id}`;
+                dotDiv.className = 'sensor-marker-dot';
+                markerDiv.appendChild(dotDiv);
+
+                // Gắn sự kiện click để hiển thị chi tiết và biểu đồ
+                markerDiv.addEventListener('click', () => {
+                    displaySensorDetails(point);
                 });
 
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-
-                const data = await response.json();
-                
-                // Lọc dữ liệu chỉ lấy của trạm hiện tại và parse JSON
-                const filteredData = data
-                    .map(item => {
-                        try {
-                            // Chắc chắn rằng item.value là JSON hợp lệ trước khi parse
-                            const valueObj = JSON.parse(item.value); 
-                            return {
-                                time: new Date(item.created_at),
-                                value: valueObj
-                            };
-                        } catch (e) {
-                            return null;
-                        }
-                    })
-                    .filter(item => item && item.value.stationId === stationId)
-                    .reverse(); // Đảo ngược để dữ liệu mới nhất ở cuối
-
-                if (filteredData.length === 0) {
-                     document.getElementById('chart-station-name').textContent = `${station.name} (Chưa có dữ liệu)`;
-                     return;
-                }
-
-                const labels = filteredData.map(item => item.time.toLocaleTimeString('vi-VN'));
-                const values = filteredData.map(item => item.value.waterLevel);
-
-                renderChart(station.name, labels, values);
-
-            } catch (error) {
-                console.error("Lỗi khi tải lịch sử từ Adafruit IO:", error);
-                document.getElementById('chart-station-name').textContent = `${station.name} (Lỗi tải dữ liệu)`;
-            }
-        }
-
-        // ---------- HÀM CẬP NHẬT CẢNH BÁO TỔNG QUAN (KHÔNG THAY ĐỔI) ----------
-        function updateAlertsAndHotStation(timestamp) {
-            let highestLevel = -1;
-            let highestStationName = 'N/A';
-            let alertCount = 0;
-
-            Object.keys(stationMarkers).forEach(id => {
-                const data = stationMarkers[id].data;
-                
-                if (data.currentLevel > highestLevel) {
-                    highestLevel = data.currentLevel;
-                    highestStationName = stationMarkers[id].fixedData.name;
-                }
-                
-                if (data.currentLevel > 100) { 
-                    alertCount++;
-                }
+                mapContainer.appendChild(markerDiv);
             });
+        }
 
-            document.getElementById('highest-station-name').textContent = highestStationName;
-            document.getElementById('highest-water-level').textContent = `${highestLevel.toFixed(1)} cm`;
+        // --- HIỂN THỊ CHI TIẾT SENSOR (GAUGE VÀ CHART) ---
+        async function displaySensorDetails(point) {
+            document.getElementById('gauge-container').innerHTML = '<p class="text-center text-gray-500">Đang tải chi tiết và lịch sử...</p>';
+            document.getElementById('chart-container').classList.add('hidden');
             
-            const alertBar = document.getElementById('global-alert');
-            const alertMsg = document.getElementById('alert-message');
+            // 1. Lấy dữ liệu mới nhất cho Gauge
+            const latestData = await fetchAdafruitData(point.feedKey, 1);
+            if (!latestData || latestData.value === undefined) {
+                document.getElementById('gauge-container').innerHTML = `<p class="text-red-500">Không lấy được dữ liệu cho ${point.name}. Vui lòng kiểm tra Feed Key và Username.</p>`;
+                return;
+            }
 
-            if (alertCount > 0) {
-                alertBar.classList.remove('hidden', 'bg-yellow-700');
-                alertBar.classList.add('bg-red-800');
-                alertMsg.textContent = `⚠️ ĐÃ PHÁT HIỆN ${alertCount} TRẠM Ở MỨC NGUY HIỂM CẤP 2! Hành động ngay!`;
-            } else if (highestLevel > 50) {
-                 alertBar.classList.remove('hidden', 'bg-red-800');
-                 alertBar.classList.add('bg-yellow-700');
-                 alertMsg.textContent = `LƯU Ý: Mực nước cao nhất là ${highestLevel.toFixed(1)} cm tại ${highestStationName} (Cảnh báo cấp 1).`;
+            const latestValue = parseFloat(latestData.value);
+            const statusInfo = getStatusInfo(latestValue, point.max_level, point.warning_level, point.danger_level);
+            
+            // 2. Cập nhật Gauge
+            document.getElementById('gauge-container').innerHTML = createGaugeHTML(point, latestValue.toFixed(1), statusInfo);
+            
+            // 3. Lấy dữ liệu lịch sử cho Chart
+            const historyData = await fetchAdafruitData(point.feedKey, HISTORY_LIMIT);
+
+            if (historyData && Array.isArray(historyData) && historyData.length > 0) {
+                renderHistoricalChart(point, historyData);
+                document.getElementById('chart-container').classList.remove('hidden');
             } else {
-                alertBar.classList.add('hidden');
-                alertBar.classList.remove('bg-yellow-700');
-                alertBar.classList.add('bg-red-800'); 
+                if (currentActiveChart) currentActiveChart.destroy();
+                document.getElementById('chart-container').classList.add('hidden');
+                console.warn(`Không có dữ liệu lịch sử cho ${point.name}`);
             }
-
-            document.getElementById('last-updated').textContent = `Cập nhật lần cuối: ${timestamp}`;
         }
 
 
-        // ---------- CÁC HÀM XỬ LÝ KẾT NỐI MQTT (KHÔNG THAY ĐỔI) ----------
-        
-        function onConnect() {
-            const config = getConfig();
-            document.getElementById('connection-status').textContent = "ĐÃ KẾT NỐI (Hoạt động)";
-            document.getElementById('connection-status').classList.remove('text-red-500', 'text-yellow-500');
-            document.getElementById('connection-status').classList.add('text-green-500');
-
-            client.subscribe(config.username + '/feeds/' + config.mqttFeed, { qos: 0 });
-        }
-
-        function onConnectionLost(responseObject) {
-            document.getElementById('connection-status').textContent = "MẤT KẾT NỐI (Đang thử lại...)";
-            document.getElementById('connection-status').classList.remove('text-green-500');
-            document.getElementById('connection-status').classList.add('text-red-500');
-            setTimeout(connectMQTT, 5000); 
-        }
-
-        function onMessageArrived(message) {
-            const payload = message.payloadString;
+        // --- LỌC VÀ CẬP NHẬT TẤT CẢ DỮ LIỆU (CHẠY ĐỊNH KỲ) ---
+        async function updateAllData() {
+            const updateTime = new Date().toLocaleTimeString('vi-VN');
+            document.getElementById('last-updated').textContent = `Cập nhật cuối cùng từ Adafruit IO: ${updateTime}`;
             
-            try {
-                const data = JSON.parse(payload);
-                if (data.stationId && typeof data.waterLevel === 'number' && typeof data.lat === 'number' && typeof data.lon === 'number') {
-                    updateStation(data);
-                } else {
-                    console.error("Payload JSON thiếu hoặc sai định dạng: ", data);
+            for (const point of SENSORS) {
+                const latestData = await fetchAdafruitData(point.feedKey, 1);
+                
+                if (latestData && latestData.value !== undefined) {
+                    const latestValue = parseFloat(latestData.value);
+                    
+                    // Cập nhật vòng tròn ảnh hưởng trên bản đồ
+                    updateMarkerVisuals(point, latestValue);
+
+                    // Nếu chi tiết của sensor này đang được hiển thị, cập nhật cả Gauge
+                    const activeSensorName = document.querySelector('#gauge-container h3')?.textContent;
+                    if (activeSensorName && activeSensorName === point.name) {
+                        const statusInfo = getStatusInfo(latestValue, point.max_level, point.warning_level, point.danger_level);
+                        document.getElementById('gauge-container').innerHTML = createGaugeHTML(point, latestValue.toFixed(1), statusInfo);
+                        // Tắt biểu đồ để tránh gọi API lịch sử quá thường xuyên
+                        // Biểu đồ sẽ được tải lại khi người dùng click vào marker
+                        if (currentActiveChart) {
+                            currentActiveChart.destroy();
+                            document.getElementById('chart-container').classList.add('hidden');
+                        }
+                    }
                 }
-            } catch (e) {
-                console.error("Lỗi Parsing JSON từ MQTT:", e, payload);
-            }
-        }
-        
-        function connectMQTT() {
-            const config = getConfig();
-            const clientID = `flood_map_client_${Math.random().toString(16).substr(2, 8)}`; 
-
-            document.getElementById('connection-status').textContent = "Đang Kết Nối...";
-            document.getElementById('connection-status').classList.remove('text-green-500', 'text-red-500');
-            document.getElementById('connection-status').classList.add('text-yellow-500');
-            
-            client = new Paho.MQTT.Client(AIO_SERVER, AIO_PORT_WS, "/mqtt", clientID); 
-
-            client.onConnectionLost = onConnectionLost;
-            client.onMessageArrived = onMessageArrived;
-
-            const options = {
-                useSSL: true, 
-                userName: config.username,
-                password: config.key,
-                cleanSession: true,
-                onSuccess: onConnect,
-                onFailure: (response) => {
-                    document.getElementById('connection-status').textContent = "KẾT NỐI THẤT BẠI";
-                    document.getElementById('connection-status').classList.remove('text-green-500', 'text-yellow-500');
-                    document.getElementById('connection-status').classList.add('text-red-500');
-                    console.error("Kết nối thất bại: " + response.errorMessage);
-                }
-            };
-            
-            client.connect(options);
-        }
-
-        function reconnectMQTT() {
-            if (client && client.isConnected()) {
-                client.disconnect();
-                setTimeout(connectMQTT, 1000); 
-            } else {
-                connectMQTT();
             }
         }
 
-        // Khởi tạo khi trang web tải xong
-        window.onload = function() {
-            initMap();
-            connectMQTT();
+        // --- Bắt đầu Ứng dụng ---
+        window.onload = () => {
+            initializeMarkers();
+            updateAllData();
+            // Lặp lại việc lấy dữ liệu theo khoảng thời gian
+            setInterval(updateAllData, UPDATE_INTERVAL_MS);
         };
-
     </script>
 </body>
 </html>
