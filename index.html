@@ -1,452 +1,233 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Flooding map</title>
-    
-    <!-- Tailwind CSS CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Chart.js CDN cho biểu đồ lịch sử -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FloodingMap</title>
 
-    <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
-        .map-container {
-            position: relative;
-            width: 100%;
-            padding-bottom: 75%; /* Tỉ lệ 4:3 (75%) hoặc thay đổi tùy theo tỉ lệ ảnh của bạn */
-            height: 0;
-            overflow: hidden;
-            border-radius: 1rem;
-        }
-        .map-container img {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
+<!-- Leaflet Map CDN -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-        /* --- STYLES CHO MARKER (VÒNG TRÒN ẢNH HƯỞNG) --- */
-        .sensor-marker {
-            position: absolute;
-            width: 20px;
-            height: 20px;
-            cursor: pointer;
-            transition: all 0.3s ease-in-out;
-            z-index: 10; /* Đặt marker lên trên vòng tròn ảnh hưởng */
-        }
-        .sensor-marker-dot {
-            width: 100%;
-            height: 100%;
-            border-radius: 50%;
-            background-color: white;
-            border: 4px solid #10b981; /* Default: Emerald green */
-            box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.5);
-            transition: all 0.3s ease-in-out;
-        }
-        
-        /* Vòng tròn ảnh hưởng gradient */
-        .influence-circle {
-            position: absolute;
-            transform: translate(-50%, -50%); /* Căn giữa vòng tròn ảnh hưởng */
-            border-radius: 50%;
-            opacity: 0.5;
-            transition: all 0.5s ease-in-out;
-            pointer-events: none; /* Không chặn click vào marker */
-        }
-        
-        /* --- STYLES CHO GAUGE (Biểu đồ hình tròn) --- */
-        .gauge-container {
-            width: 100%;
-            height: 120px;
-            position: relative;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .gauge {
-            width: 120px;
-            height: 120px;
-            border-radius: 50%;
-            background: conic-gradient(
-                var(--gauge-color) 0% var(--gauge-percent), 
-                #e5e7eb var(--gauge-percent) 100%
-            );
-            position: relative;
-            transition: background 0.5s ease;
-        }
-        .gauge::before {
-            content: "";
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 90px;
-            height: 90px;
-            background-color: white;
-            border-radius: 50%;
-        }
-        .gauge-label {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: var(--gauge-color);
-            z-index: 2;
-        }
-    </style>
+<!-- ApexCharts -->
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+
+<style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+
+    body {
+        font-family: Arial;
+        overflow: hidden;
+    }
+
+    /* Bản đồ chiếm toàn bộ màn hình */
+    #map {
+        width: 100vw;
+        height: 100vh;
+    }
+
+    /* --- PANEL CHI TIẾT --- */
+    #infoPanel {
+        position: fixed;
+        top: 0;
+        right: -400px;  /* Ẩn panel ban đầu */
+        width: 400px;
+        height: 100vh;
+        background: #ffffff;
+        border-left: 3px solid #0078ff;
+        padding: 20px;
+        overflow-y: auto;
+        transition: 0.35s ease;
+        box-shadow: -4px 0 10px rgba(0,0,0,0.2);
+        z-index: 9999;
+    }
+
+    #infoPanel.active {
+        right: 0;   /* Trượt ra khi click */
+    }
+
+    .close-btn {
+        font-size: 18px;
+        padding: 8px 12px;
+        background: #ff3b3b;
+        color: white;
+        border-radius: 6px;
+        cursor: pointer;
+        margin-bottom: 20px;
+        display: inline-block;
+    }
+
+    /* Marker điểm đo */
+    .sensor-marker {
+        width: 20px;
+        height: 20px;
+        background: #0090ff;
+        border-radius: 50%;
+        border: 2px solid white;
+        cursor: pointer;
+    }
+
+</style>
 </head>
-<body class="p-4 lg:p-8">
+<body>
 
-    <div class="w-full max-w-6xl mx-auto">
-        <h1 class="text-4xl font-bold text-center text-gray-800 mb-6 border-b pb-2">
-            Bản đồ giám sát mực nước
-        </h1>
+<!-- Bản đồ -->
+<div id="map"></div>
 
-       <div class="flex flex-col lg:flex-row gap-4">
+<!-- PANEL CHI TIẾT ĐIỂM ĐO -->
+<div id="infoPanel">
+    <div class="close-btn" onclick="closePanel()">Đóng</div>
 
-    <!-- Bản đồ chiếm 3/4 -->
-    <div class="w-full lg:w-3/4">
-        <div class="map-container bg-gray-200 shadow-xl">
-            <img id="static-map-img" src="./iotmap.png" alt="Bản đồ Tùy chỉnh"
-                 onerror="this.src='https://placehold.co/800x600/60a5fa/ffffff?text=Bản+đồ+tĩnh+chưa+tải';" />
-        </div>
-        <p id="last-updated" class="text-sm text-gray-500 mt-4 text-center">Đang tải dữ liệu từ Adafruit IO...</p>
-    </div>
+    <h2 id="sensorName"></h2>
+    <div id="gaugeBox"></div>
+    <p id="statusText" style="font-size:16px; margin:10px 0;"></p>
 
-    <!-- Panel chi tiết chiếm 1/4 -->
-    <div id="sensor-detail-card" class="w-full lg:w-1/4 bg-white p-6 rounded-xl shadow-xl space-y-4">
-        <h2 class="text-2xl font-semibold text-gray-800 border-b pb-2 mb-4">
-            Dữ liệu chi tiết
-        </h2>
-
-        <div id="gauge-container" class="text-center">
-            <p class="text-gray-500">Chọn một điểm đo trên bản đồ để xem chi tiết.</p>
-        </div>
-
-        <div id="chart-container" class="mt-6 pt-4 border-t hidden">
-            <h3 class="text-xl font-semibold text-gray-700 mb-3">
-                Lịch Sử 24 Giá Trị Gần Nhất
-            </h3>
-            <canvas id="historicalChart"></canvas>
-        </div>
-    </div>
-
+    <div id="chartBox" style="margin-top:20px;"></div>
 </div>
 
+<script>
+/* ==============================
+   CẤU HÌNH ADAFRUIT IO
+================================ */
+const AIO_USERNAME = "quagmire_win1000";
+const AIO_KEY      = "aio_mCmT98e85Vy0rNOZUDEq7aKAg77J";
 
-    <script>
-        // --- CẤU HÌNH ADAFRUIT IO & THIẾT BỊ (THAY THẾ BẰNG THÔNG TIN THỰC TẾ CỦA BẠN) ---
-        const AIO_USERNAME = "quagmire_win1000"; // <-- THAY TÊN NGƯỜI DÙNG CỦA BẠN
-        const UPDATE_INTERVAL_MS = 15000; // Làm mới mỗi 15 giây
-        const HISTORY_LIMIT = 3; // Lấy 24 điểm dữ liệu lịch sử
-        
-        // Mức cảnh báo: 60 (vàng), Mức nguy hiểm: 85 (đỏ)
-        const WARNING_THRESHOLD = 60;
-        const DANGER_THRESHOLD = 85;
+/* ==============================
+   DANH SÁCH ĐIỂM ĐO
+================================ */
+const SENSORS = [
+    {
+        name: "Điểm đo 1",
+        feed: "waterlevel1",
+        lat: 10.75,
+        lng: 106.65,
+        max_level: 100,
+        warning: 60,
+        danger: 80
+    },
+    {
+        name: "Điểm đo 2",
+        feed: "waterlevel2",
+        lat: 10.77,
+        lng: 106.67,
+        max_level: 100,
+        warning: 60,
+        danger: 80
+    }
+];
 
-        // Định nghĩa các điểm đo trên bản đồ
-        const SENSORS = [
-            {
-                id: 'sensor-a',
-                name: "Điểm đo 1",
-                feedKey: "water-level1", // <-- THAY FEED KEY 1 CỦA BẠN
-                // Tọa độ tương đối trên ảnh (0-100)
-                map_x: 35, 
-                map_y: 50,
-                unit: "cm",
-                max_level: 120, // Mực nước tối đa thực tế (để tính Gauge)
-                warning_level: 60,
-                danger_level: 90,
-            },
-            {
-                id: 'sensor-b',
-                name: "Điểm đo 2",
-                feedKey: "water-level2", // <-- THAY FEED KEY 2 CỦA BẠN
-                // Tọa độ tương đối trên ảnh (0-100)
-                map_x: 75, 
-                map_y: 70,
-                unit: "cm",
-                max_level: 80, // Mực nước tối đa thực tế
-                warning_level: 50,
-                danger_level: 70,
-            }
-        ];
+/* ==============================
+   KHỞI TẠO BẢN ĐỒ
+================================ */
+const map = L.map('map').setView([10.76, 106.66], 14);
 
-        let currentActiveChart = null; // Lưu trữ đối tượng Chart.js
+// Map nền
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19
+}).addTo(map);
 
-        // --- HÀM TẠO VÀ CẬP NHẬT GAUGE ---
+/* ==============================
+   TẠO MARKER TRÊN MAP
+================================ */
+SENSORS.forEach(point => {
+    const marker = L.circleMarker([point.lat, point.lng], {
+        radius: 10,
+        color: "#0090ff",
+        fillColor: "#00aaff",
+        fillOpacity: 0.8
+    })
+    .addTo(map)
+    .on("click", () => openSensorPanel(point));
+});
 
-        /**
-         * Lấy màu sắc và thông báo dựa trên mực nước hiện tại
-         */
-        function getStatusInfo(current, max, warning, danger) {
-            const level = (current / max) * 100;
-            let color, status;
+/* ==============================
+   HÀM LẤY DỮ LIỆU ADAFRUIT
+================================ */
+async function fetchData(feed, limit = 1) {
+    const url = `https://io.adafruit.com/api/v2/${AIO_USERNAME}/feeds/${feed}/data?limit=${limit}&x-aio-key=${AIO_KEY}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    return data;
+}
 
-            if (level >= (danger / max) * 100) {
-                color = '#ef4444'; // Red
-                status = 'NGUY HIỂM CAO';
-            } else if (level >= (warning / max) * 100) {
-                color = '#f59e0b'; // Amber/Orange
-                status = 'CẢNH BÁO';
-            } else {
-                color = '#10b981'; // Emerald Green
-                status = 'AN TOÀN';
-            }
-            
-            // Tính phần trăm cho Gauge (từ 0 đến 100)
-            const gaugePercent = Math.min(100, (current / max) * 100).toFixed(2);
+/* ==============================
+   HÀM MỞ PANEL CHI TIẾT
+================================ */
+async function openSensorPanel(point) {
+    document.getElementById("infoPanel").classList.add("active");
+    document.getElementById("sensorName").innerText = point.name;
 
-            return { color, status, gaugePercent };
-        }
+    const latest = await fetchData(point.feed, 1);
+    const value = parseFloat(latest[0].value);
 
-        /**
-         * Tạo HTML cho Gauge và thông tin chi tiết
-         */
-        function createGaugeHTML(point, level, statusInfo) {
-            return `
-                <div class="space-y-4">
-                    <h3 class="text-2xl font-bold text-gray-800">${point.name}</h3>
-                    <p class="text-sm text-gray-500">Feed Key: ${point.feedKey}</p>
-                    <div class="gauge-container" style="--gauge-color: ${statusInfo.color}; --gauge-percent: ${statusInfo.gaugePercent}%;">
-                        <div class="gauge"></div>
-                        <span class="gauge-label">${statusInfo.gaugePercent}%</span>
-                    </div>
-                    <p class="text-4xl font-extrabold" style="color: ${statusInfo.color};">${level} ${point.unit}</p>
-                    <p class="text-lg font-semibold" style="color: ${statusInfo.color};">${statusInfo.status}</p>
-                    <p class="text-xs text-gray-400 mt-2">Mức tối đa: ${point.max_level} ${point.unit}</p>
-                </div>
-            `;
-        }
+    renderGauge(point, value);
+    renderStatus(point, value);
 
-        /**
-         * Hàm vẽ hoặc cập nhật biểu đồ Chart.js
-         */
-        function renderHistoricalChart(point, historyData) {
-            const chartCanvas = document.getElementById('historicalChart');
-            const dataValues = historyData.map(d => parseFloat(d.value)).reverse(); // Lấy giá trị, đảo ngược để gần nhất ở bên phải
-            const labels = historyData.map(d => {
-                const date = new Date(d.created_at);
-                // Hiển thị giờ và phút
-                return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-            }).reverse();
+    const history = await fetchData(point.feed, 20);
+    renderChart(history);
+}
 
-            if (currentActiveChart) {
-                currentActiveChart.destroy(); // Xóa biểu đồ cũ
-            }
+/* ===============================
+   ĐÓNG PANEL
+================================ */
+function closePanel() {
+    document.getElementById("infoPanel").classList.remove("active");
+}
 
-            currentActiveChart = new Chart(chartCanvas, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: `Mực Nước (${point.unit})`,
-                        data: dataValues,
-                        borderColor: point.color || '#3b82f6', // Màu xanh dương mặc định
-                        tension: 0.3,
-                        fill: true,
-                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                        pointRadius: 4,
-                        pointHoverRadius: 6,
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        legend: { display: true },
-                        tooltip: { mode: 'index', intersect: false },
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            title: { display: true, text: point.unit }
-                        }
-                    }
-                }
-            });
-        }
+/* ==============================
+   RENDER GAUGE
+================================ */
+function renderGauge(point, value) {
+    const percent = Math.min(100, Math.round(value / point.max_level * 100));
 
+    document.getElementById("gaugeBox").innerHTML = `
+        <div style="text-align:center; margin-top:15px;">
+            <h3>Mực nước hiện tại: ${value} cm</h3>
+            <h2 style="color:#0078ff; font-size:40px">${percent}%</h2>
+        </div>
+    `;
+}
 
-        // --- CHỨC NĂNG LẤY DỮ LIỆU TỪ ADAFRUIT IO ---
+/* ==============================
+   TRẠNG THÁI CẢNH BÁO
+================================ */
+function renderStatus(point, value) {
+    let txt = "";
+    let color = "";
 
-        /**
-         * Lấy dữ liệu từ Adafruit IO
-         * @param {string} feedKey - Feed Key
-         * @param {number} limit - Số lượng dữ liệu lịch sử cần lấy (1 = mới nhất)
-         * @returns {Promise<Array | object>} Dữ liệu từ API
-         */
-        async function fetchAdafruitData(feedKey, limit = 1) {
-            // Lấy dữ liệu lịch sử hoặc dữ liệu mới nhất
-            const endpoint = limit > 1 ? `data?limit=${limit}` : 'data/last';
-            const apiUrl = `https://io.adafruit.com/api/v2/${AIO_USERNAME}/feeds/${feedKey}/${endpoint}`;
+    if (value >= point.danger) {
+        txt = "⚠️ Nguy hiểm – mức nước vượt ngưỡng!";
+        color = "red";
+    } else if (value >= point.warning) {
+        txt = "🟡 Cảnh báo – mức nước tăng cao.";
+        color = "orange";
+    } else {
+        txt = "🟢 An toàn – mực nước bình thường.";
+        color = "green";
+    }
 
-            // Hàm retry với exponential backoff
-            const maxRetries = 3;
-            let lastError = null;
+    document.getElementById("statusText").innerHTML =
+        `<span style="color:${color}; font-weight:bold;">${txt}</span>`;
+}
 
-            for (let i = 0; i < maxRetries; i++) {
-                try {
-                    const response = await fetch(apiUrl);
-                    
-                    if (!response.ok) {
-                        throw new Error(`Lỗi (${response.status}): Kiểm tra AIO Username/Feed Key.`);
-                    }
-                    const data = await response.json();
-                    return data;
-                } catch (error) {
-                    lastError = error;
-                    if (i < maxRetries - 1) {
-                        const delay = Math.pow(2, i) * 1000; // 1s, 2s, 4s
-                        await new Promise(resolve => setTimeout(resolve, delay));
-                    }
-                }
-            }
-            console.error(`[LỖI ADAFRUIT IO] Feed ${feedKey}: Không thể lấy dữ liệu sau ${maxRetries} lần thử.`, lastError.message);
-            return null;
-        }
+/* ==============================
+   BIỂU ĐỒ LỊCH SỬ
+================================ */
+function renderChart(history) {
+    const values = history.map(d => parseFloat(d.value)).reverse();
+    const times = history.map(d => d.created_at).reverse();
 
-        /**
-         * Cập nhật Marker trên bản đồ (màu, kích thước, vị trí)
-         */
-        function updateMarkerVisuals(point, latestValue) {
-            const statusInfo = getStatusInfo(latestValue, point.max_level, point.warning_level, point.danger_level);
-            
-            // Tính kích thước vòng tròn ảnh hưởng (từ 40px đến 150px)
-            // Càng nguy hiểm (gaugePercent cao), kích thước càng lớn
-            const influenceSize = 40 + (parseFloat(statusInfo.gaugePercent) / 100) * 110; 
-            
-            const mapContainer = document.querySelector('.map-container');
-            const markerDiv = document.getElementById(`marker-${point.id}`);
-            const circleDiv = document.getElementById(`circle-${point.id}`);
-            const dotDiv = document.getElementById(`dot-${point.id}`);
-            
-            if (markerDiv && circleDiv && dotDiv) {
-                // 1. Vị trí Marker (căn chỉnh theo tọa độ 0-100)
-                markerDiv.style.left = `${point.map_x}%`;
-                markerDiv.style.top = `${point.map_y}%`;
-                
-                // 2. Cập nhật DOT (Icon)
-                dotDiv.style.borderColor = statusInfo.color;
-                
-                // 3. Cập nhật CIRCLE (Ảnh hưởng Gradient)
-                circleDiv.style.width = `${influenceSize}px`;
-                circleDiv.style.height = `${influenceSize}px`;
-                
-                // Thay đổi màu nền gradient của vòng tròn
-                circleDiv.style.backgroundImage = `radial-gradient(circle, rgba(255, 255, 255, 0.9) 0%, ${statusInfo.color} 30%, rgba(255, 255, 255, 0.1) 80%)`;
-                circleDiv.style.opacity = Math.min(0.9, 0.4 + (parseFloat(statusInfo.gaugePercent) / 100) * 0.5); // Tăng opacity theo mức độ nguy hiểm
-            }
-        }
+    document.getElementById("chartBox").innerHTML = "";
 
-        // --- KHỞI TẠO MARKER TRÊN BẢN ĐỒ ---
-        function initializeMarkers() {
-            const mapContainer = document.querySelector('.map-container');
-            
-            SENSORS.forEach(point => {
-                // 1. Tạo Vòng tròn Ảnh hưởng Gradient
-                const circleDiv = document.createElement('div');
-                circleDiv.id = `circle-${point.id}`;
-                circleDiv.className = 'influence-circle';
-                circleDiv.style.left = `${point.map_x}%`;
-                circleDiv.style.top = `${point.map_y}%`;
-                mapContainer.appendChild(circleDiv);
+    new ApexCharts(document.getElementById("chartBox"), {
+        chart: { type: "line", height: 260 },
+        series: [{ name: "Mực nước", data: values }],
+        xaxis: { categories: times },
+        stroke: { width: 3 },
+        colors: ["#0078ff"]
+    }).render();
+}
 
-                // 2. Tạo Marker Dot
-                const markerDiv = document.createElement('div');
-                markerDiv.id = `marker-${point.id}`;
-                markerDiv.className = 'sensor-marker';
-                markerDiv.style.left = `${point.map_x}%`;
-                markerDiv.style.top = `${point.map_y}%`;
-                
-                const dotDiv = document.createElement('div');
-                dotDiv.id = `dot-${point.id}`;
-                dotDiv.className = 'sensor-marker-dot';
-                markerDiv.appendChild(dotDiv);
-
-                // Gắn sự kiện click để hiển thị chi tiết và biểu đồ
-                markerDiv.addEventListener('click', () => {
-                    displaySensorDetails(point);
-                });
-
-                mapContainer.appendChild(markerDiv);
-            });
-        }
-
-        // --- HIỂN THỊ CHI TIẾT SENSOR (GAUGE VÀ CHART) ---
-        async function displaySensorDetails(point) {
-            document.getElementById('gauge-container').innerHTML = '<p class="text-center text-gray-500">Đang tải chi tiết và lịch sử...</p>';
-            document.getElementById('chart-container').classList.add('hidden');
-            
-            // 1. Lấy dữ liệu mới nhất cho Gauge
-            const latestData = await fetchAdafruitData(point.feedKey, 1);
-            if (!latestData || latestData.value === undefined) {
-                document.getElementById('gauge-container').innerHTML = `<p class="text-red-500">Không lấy được dữ liệu cho ${point.name}. Vui lòng kiểm tra Feed Key và Username.</p>`;
-                return;
-            }
-
-            const latestValue = parseFloat(latestData.value);
-            const statusInfo = getStatusInfo(latestValue, point.max_level, point.warning_level, point.danger_level);
-            
-            // 2. Cập nhật Gauge
-            document.getElementById('gauge-container').innerHTML = createGaugeHTML(point, latestValue.toFixed(1), statusInfo);
-            
-            // 3. Lấy dữ liệu lịch sử cho Chart
-            const historyData = await fetchAdafruitData(point.feedKey, HISTORY_LIMIT);
-
-            if (historyData && Array.isArray(historyData) && historyData.length > 0) {
-                renderHistoricalChart(point, historyData);
-                document.getElementById('chart-container').classList.remove('hidden');
-            } else {
-                if (currentActiveChart) currentActiveChart.destroy();
-                document.getElementById('chart-container').classList.add('hidden');
-                console.warn(`Không có dữ liệu lịch sử cho ${point.name}`);
-            }
-        }
-
-
-        // --- LỌC VÀ CẬP NHẬT TẤT CẢ DỮ LIỆU (CHẠY ĐỊNH KỲ) ---
-        async function updateAllData() {
-            const updateTime = new Date().toLocaleTimeString('vi-VN');
-            document.getElementById('last-updated').textContent = `Cập nhật cuối cùng từ Adafruit IO: ${updateTime}`;
-            
-            for (const point of SENSORS) {
-                const latestData = await fetchAdafruitData(point.feedKey, 1);
-                
-                if (latestData && latestData.value !== undefined) {
-                    const latestValue = parseFloat(latestData.value);
-                    
-                    // Cập nhật vòng tròn ảnh hưởng trên bản đồ
-                    updateMarkerVisuals(point, latestValue);
-
-                    // Nếu chi tiết của sensor này đang được hiển thị, cập nhật cả Gauge
-                    const activeSensorName = document.querySelector('#gauge-container h3')?.textContent;
-                    if (activeSensorName && activeSensorName === point.name) {
-                        const statusInfo = getStatusInfo(latestValue, point.max_level, point.warning_level, point.danger_level);
-                        document.getElementById('gauge-container').innerHTML = createGaugeHTML(point, latestValue.toFixed(1), statusInfo);
-                        // Tắt biểu đồ để tránh gọi API lịch sử quá thường xuyên
-                        // Biểu đồ sẽ được tải lại khi người dùng click vào marker
-                        if (currentActiveChart) {
-                            currentActiveChart.destroy();
-                            document.getElementById('chart-container').classList.add('hidden');
-                        }
-                    }
-                }
-            }
-        }
-
-        // --- Bắt đầu Ứng dụng ---
-        window.onload = () => {
-            initializeMarkers();
-            updateAllData();
-            // Lặp lại việc lấy dữ liệu theo khoảng thời gian
-            setInterval(updateAllData, UPDATE_INTERVAL_MS);
-        };
-    </script>
+</script>
 </body>
 </html>
