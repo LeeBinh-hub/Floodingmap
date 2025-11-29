@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard Giám Sát Lũ Lụt - Adafruit IO & Gauge</title>
+    <title>Flooding map</title>
     
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -143,7 +143,7 @@
         // --- CẤU HÌNH ADAFRUIT IO & THIẾT BỊ (THAY THẾ BẰNG THÔNG TIN THỰC TẾ CỦA BẠN) ---
         const AIO_USERNAME = "quagmire_win1000"; // <-- THAY TÊN NGƯỜI DÙNG CỦA BẠN
         const UPDATE_INTERVAL_MS = 15000; // Làm mới mỗi 15 giây
-        const HISTORY_LIMIT = 24; // Lấy 24 điểm dữ liệu lịch sử
+        const HISTORY_LIMIT = 3; // Lấy 24 điểm dữ liệu lịch sử
         
         // Mức cảnh báo: 60 (vàng), Mức nguy hiểm: 85 (đỏ)
         const WARNING_THRESHOLD = 60;
