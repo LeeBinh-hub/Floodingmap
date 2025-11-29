@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FloodingMap</title>
+<title>Bản đồ giám sát mực nước – Đà Nẵng</title>
 
-<!-- Leaflet Map CDN -->
+<!-- Leaflet -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
@@ -13,209 +13,270 @@
 <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 
 <style>
-    * { margin:0; padding:0; box-sizing:border-box; }
+    body { margin:0; padding:0; font-family:Arial; }
 
-    body {
-        font-family: Arial;
-        overflow: hidden;
-    }
-
-    /* Bản đồ chiếm toàn bộ màn hình */
     #map {
         width: 100vw;
         height: 100vh;
     }
 
-    /* --- PANEL CHI TIẾT --- */
-    #infoPanel {
+    /* ========== SIDEBAR ========== */
+    #sidebar {
         position: fixed;
         top: 0;
-        right: -400px;  /* Ẩn panel ban đầu */
-        width: 400px;
+        right: -420px;
+        width: 420px;
         height: 100vh;
         background: #ffffff;
         border-left: 3px solid #0078ff;
+        box-shadow: -4px 0 25px rgba(0,0,0,0.15);
+        transition: 0.35s;
+        padding: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+    }
+
+    #sidebar.active {
+        right: 0;
+    }
+
+    /* Header */
+    #sidebarHeader {
+        background: linear-gradient(135deg, #0078ff, #00a6ff);
+        color: white;
+        padding: 16px;
+        font-size: 20px;
+        font-weight: bold;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    #closeBtn {
+        cursor: pointer;
+        font-size: 22px;
+        padding: 2px 8px;
+        background: rgba(255,255,255,0.3);
+        border-radius: 4px;
+    }
+
+    /* Nội dung */
+    #sidebarContent {
         padding: 20px;
         overflow-y: auto;
-        transition: 0.35s ease;
-        box-shadow: -4px 0 10px rgba(0,0,0,0.2);
-        z-index: 9999;
     }
 
-    #infoPanel.active {
-        right: 0;   /* Trượt ra khi click */
-    }
-
-    .close-btn {
-        font-size: 18px;
-        padding: 8px 12px;
-        background: #ff3b3b;
+    /* Nút toggle sidebar */
+    #toggleSidebar {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: #0078ff;
         color: white;
-        border-radius: 6px;
+        padding: 14px;
+        border-radius: 50%;
         cursor: pointer;
-        margin-bottom: 20px;
-        display: inline-block;
+        z-index: 10000;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+        font-size: 20px;
+        transition: 0.25s;
     }
 
-    /* Marker điểm đo */
-    .sensor-marker {
-        width: 20px;
-        height: 20px;
-        background: #0090ff;
-        border-radius: 50%;
-        border: 2px solid white;
-        cursor: pointer;
+    #toggleSidebar:hover {
+        transform: scale(1.1);
+    }
+
+    /* Tìm kiếm */
+    #searchBox {
+        position: fixed;
+        top: 20px;
+        left: 20px;
+        z-index: 10000;
+    }
+
+    #searchInput {
+        width: 260px;
+        padding: 10px 14px;
+        border-radius: 10px;
+        border: 2px solid #0078ff;
+        font-size: 16px;
+        outline: none;
     }
 
 </style>
 </head>
 <body>
 
+<!-- Nút toggle -->
+<div id="toggleSidebar">☰</div>
+
+<!-- Ô tìm kiếm -->
+<div id="searchBox">
+    <input id="searchInput" placeholder="Tìm điểm đo..." />
+</div>
+
 <!-- Bản đồ -->
 <div id="map"></div>
 
-<!-- PANEL CHI TIẾT ĐIỂM ĐO -->
-<div id="infoPanel">
-    <div class="close-btn" onclick="closePanel()">Đóng</div>
+<!-- Sidebar -->
+<div id="sidebar">
+    <div id="sidebarHeader">
+        Chi tiết điểm đo
+        <span id="closeBtn">✕</span>
+    </div>
 
-    <h2 id="sensorName"></h2>
-    <div id="gaugeBox"></div>
-    <p id="statusText" style="font-size:16px; margin:10px 0;"></p>
-
-    <div id="chartBox" style="margin-top:20px;"></div>
+    <div id="sidebarContent">
+        <h2 id="sensorName"></h2>
+        <div id="gaugeBox"></div>
+        <p id="statusText"></p>
+        <div id="chartBox" style="margin-top:25px;"></div>
+    </div>
 </div>
 
 <script>
 /* ==============================
    CẤU HÌNH ADAFRUIT IO
 ================================ */
-const AIO_USERNAME = "quagmire_win1000";
-const AIO_KEY      = "aio_mCmT98e85Vy0rNOZUDEq7aKAg77J";
+const AIO_USERNAME = "YOUR_USERNAME";
+const AIO_KEY      = "YOUR_AIO_KEY";
 
 /* ==============================
    DANH SÁCH ĐIỂM ĐO
 ================================ */
 const SENSORS = [
     {
-        name: "Điểm đo 1",
-        feed: "waterlevel1",
-        lat: 10.75,
-        lng: 106.65,
+        name: "Cầu Rồng",
+        feed: "mucnuoc1",
+        lat: 16.0605,
+        lng: 108.2237,
         max_level: 100,
         warning: 60,
-        danger: 80
+        danger: 85
     },
     {
-        name: "Điểm đo 2",
-        feed: "waterlevel2",
-        lat: 10.77,
-        lng: 106.67,
+        name: "Cầu Sông Hàn",
+        feed: "mucnuoc2",
+        lat: 16.0678,
+        lng: 108.2301,
         max_level: 100,
         warning: 60,
-        danger: 80
+        danger: 85
+    },
+    {
+        name: "Ngã ba Huế",
+        feed: "mucnuoc3",
+        lat: 16.0543,
+        lng: 108.1901,
+        max_level: 100,
+        warning: 60,
+        danger: 85
     }
 ];
 
 /* ==============================
-   KHỞI TẠO BẢN ĐỒ
+   MAP ĐÀ NẴNG
 ================================ */
-const map = L.map('map').setView([10.76, 106.66], 14);
+const map = L.map('map').setView([16.0678, 108.2200], 13);
 
-// Map nền
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19
 }).addTo(map);
 
 /* ==============================
-   TẠO MARKER TRÊN MAP
+   TẠO MARKER
 ================================ */
 SENSORS.forEach(point => {
-    const marker = L.circleMarker([point.lat, point.lng], {
+    L.circleMarker([point.lat, point.lng], {
         radius: 10,
-        color: "#0090ff",
-        fillColor: "#00aaff",
-        fillOpacity: 0.8
+        color: "#0078ff",
+        fillColor: "#00a6ff",
+        fillOpacity: 0.9
     })
     .addTo(map)
-    .on("click", () => openSensorPanel(point));
+    .on("click", () => openSensor(point));
 });
 
 /* ==============================
-   HÀM LẤY DỮ LIỆU ADAFRUIT
+   FETCH DATA
 ================================ */
-async function fetchData(feed, limit = 1) {
+async function getData(feed, limit = 1) {
     const url = `https://io.adafruit.com/api/v2/${AIO_USERNAME}/feeds/${feed}/data?limit=${limit}&x-aio-key=${AIO_KEY}`;
     const res = await fetch(url);
-    const data = await res.json();
-    return data;
+    return await res.json();
 }
 
 /* ==============================
-   HÀM MỞ PANEL CHI TIẾT
+   MỞ SIDEBAR KHI CLICK MARKER
 ================================ */
-async function openSensorPanel(point) {
-    document.getElementById("infoPanel").classList.add("active");
+async function openSensor(point) {
+    toggleSidebar(true);
+
     document.getElementById("sensorName").innerText = point.name;
 
-    const latest = await fetchData(point.feed, 1);
-    const value = parseFloat(latest[0].value);
+    const last = await getData(point.feed, 1);
+    const val = parseFloat(last[0].value);
 
-    renderGauge(point, value);
-    renderStatus(point, value);
+    renderGauge(point, val);
+    renderStatus(point, val);
 
-    const history = await fetchData(point.feed, 20);
+    const history = await getData(point.feed, 15);
     renderChart(history);
 }
 
-/* ===============================
-   ĐÓNG PANEL
+/* ==============================
+   SIDEBAR TOGGLE
 ================================ */
-function closePanel() {
-    document.getElementById("infoPanel").classList.remove("active");
+const sidebar = document.getElementById("sidebar");
+const toggleBtn = document.getElementById("toggleSidebar");
+const closeBtn = document.getElementById("closeBtn");
+
+toggleBtn.onclick = () => toggleSidebar();
+closeBtn.onclick = () => toggleSidebar(false);
+
+function toggleSidebar(forceOpen = null) {
+    if (forceOpen === true) {
+        sidebar.classList.add("active");
+        return;
+    }
+    if (forceOpen === false) {
+        sidebar.classList.remove("active");
+        return;
+    }
+    sidebar.classList.toggle("active");
 }
 
 /* ==============================
-   RENDER GAUGE
+   GAUGE
 ================================ */
 function renderGauge(point, value) {
-    const percent = Math.min(100, Math.round(value / point.max_level * 100));
-
+    const percent = Math.round(value / point.max_level * 100);
     document.getElementById("gaugeBox").innerHTML = `
-        <div style="text-align:center; margin-top:15px;">
-            <h3>Mực nước hiện tại: ${value} cm</h3>
-            <h2 style="color:#0078ff; font-size:40px">${percent}%</h2>
-        </div>
+        <h3>Mực nước: ${value} cm</h3>
+        <h1 style="color:#0078ff; font-size:40px">${percent}%</h1>
     `;
 }
 
 /* ==============================
-   TRẠNG THÁI CẢNH BÁO
+   STATUS
 ================================ */
 function renderStatus(point, value) {
-    let txt = "";
-    let color = "";
+    let text, color;
 
-    if (value >= point.danger) {
-        txt = "⚠️ Nguy hiểm – mức nước vượt ngưỡng!";
-        color = "red";
-    } else if (value >= point.warning) {
-        txt = "🟡 Cảnh báo – mức nước tăng cao.";
-        color = "orange";
-    } else {
-        txt = "🟢 An toàn – mực nước bình thường.";
-        color = "green";
-    }
+    if (value >= point.danger) { text = "⚠️ Nguy hiểm"; color = "red"; }
+    else if (value >= point.warning) { text = "🟡 Cảnh báo"; color = "orange"; }
+    else { text = "🟢 An toàn"; color = "green"; }
 
     document.getElementById("statusText").innerHTML =
-        `<span style="color:${color}; font-weight:bold;">${txt}</span>`;
+        `<span style="color:${color}; font-size:18px; font-weight:bold;">${text}</span>`;
 }
 
 /* ==============================
-   BIỂU ĐỒ LỊCH SỬ
+   BIỂU ĐỒ
 ================================ */
 function renderChart(history) {
     const values = history.map(d => parseFloat(d.value)).reverse();
-    const times = history.map(d => d.created_at).reverse();
+    const times = history.map(d => d.created_at.slice(11,19)).reverse();
 
     document.getElementById("chartBox").innerHTML = "";
 
@@ -223,11 +284,23 @@ function renderChart(history) {
         chart: { type: "line", height: 260 },
         series: [{ name: "Mực nước", data: values }],
         xaxis: { categories: times },
-        stroke: { width: 3 },
-        colors: ["#0078ff"]
+        stroke: { width: 3 }
     }).render();
 }
 
+/* ==============================
+   TÌM KIẾM ĐIỂM ĐO
+================================ */
+document.getElementById("searchInput").addEventListener("input", function () {
+    const keyword = this.value.toLowerCase();
+
+    const found = SENSORS.find(s => s.name.toLowerCase().includes(keyword));
+    if (!found) return;
+
+    map.setView([found.lat, found.lng], 15);
+    openSensor(found);
+});
 </script>
+
 </body>
 </html>
