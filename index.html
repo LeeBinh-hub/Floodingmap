@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bản đồ giám sát mực nước – Đà Nẵng</title>
+<title>Floodingmap</title>
 
 <!-- Leaflet -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -14,11 +14,7 @@
 
 <style>
     body { margin:0; padding:0; font-family:Arial; }
-
-    #map {
-        width: 100vw;
-        height: 100vh;
-    }
+    #map { width: 100vw; height: 100vh; }
 
     /* ========== SIDEBAR ========== */
     #sidebar {
@@ -36,12 +32,8 @@
         display: flex;
         flex-direction: column;
     }
+    #sidebar.active { right: 0; }
 
-    #sidebar.active {
-        right: 0;
-    }
-
-    /* Header */
     #sidebarHeader {
         background: linear-gradient(135deg, #0078ff, #00a6ff);
         color: white;
@@ -52,7 +44,6 @@
         justify-content: space-between;
         align-items: center;
     }
-
     #closeBtn {
         cursor: pointer;
         font-size: 22px;
@@ -61,13 +52,11 @@
         border-radius: 4px;
     }
 
-    /* Nội dung */
     #sidebarContent {
         padding: 20px;
         overflow-y: auto;
     }
 
-    /* Nút toggle sidebar */
     #toggleSidebar {
         position: fixed;
         top: 20px;
@@ -82,19 +71,14 @@
         font-size: 20px;
         transition: 0.25s;
     }
+    #toggleSidebar:hover { transform: scale(1.1); }
 
-    #toggleSidebar:hover {
-        transform: scale(1.1);
-    }
-
-    /* Tìm kiếm */
     #searchBox {
         position: fixed;
         top: 20px;
         left: 20px;
         z-index: 10000;
     }
-
     #searchInput {
         width: 260px;
         padding: 10px 14px;
@@ -103,23 +87,18 @@
         font-size: 16px;
         outline: none;
     }
-
 </style>
 </head>
 <body>
 
-<!-- Nút toggle -->
 <div id="toggleSidebar">☰</div>
 
-<!-- Ô tìm kiếm -->
 <div id="searchBox">
     <input id="searchInput" placeholder="Tìm điểm đo..." />
 </div>
 
-<!-- Bản đồ -->
 <div id="map"></div>
 
-<!-- Sidebar -->
 <div id="sidebar">
     <div id="sidebarHeader">
         Chi tiết điểm đo
@@ -145,56 +124,30 @@ const AIO_KEY      = "aio_wrba09jowDt4fTmz8xGvk1QSu9nM";
    DANH SÁCH ĐIỂM ĐO
 ================================ */
 const SENSORS = [
-    {
-        name: "Cầu Rồng",
-        feed: "mucnuoc1",
-        lat: 16.0605,
-        lng: 108.2237,
-        max_level: 100,
-        warning: 60,
-        danger: 85
-    },
-    {
-        name: "Cầu Sông Hàn",
-        feed: "mucnuoc2",
-        lat: 16.0678,
-        lng: 108.2301,
-        max_level: 100,
-        warning: 60,
-        danger: 85
-    },
-    {
-        name: "Ngã ba Huế",
-        feed: "mucnuoc3",
-        lat: 16.0543,
-        lng: 108.1901,
-        max_level: 100,
-        warning: 60,
-        danger: 85
-    }
+    { name: "Cầu Rồng", feed: "iotproject.mucnuoc1", lat: 16.0605, lng: 108.2237, max_level: 100, warning: 60, danger: 85 },
+    { name: "Cầu Sông Hàn", feed: "iotproject.mucnuoc2", lat: 16.0678, lng: 108.2301, max_level: 100, warning: 60, danger: 85 }
 ];
 
 /* ==============================
    MAP ĐÀ NẴNG
 ================================ */
 const map = L.map('map').setView([16.0678, 108.2200], 13);
-
-L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19
-}).addTo(map);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
 /* ==============================
-   TẠO MARKER
+   MARKER & VÒNG TRÒN ẢNH HƯỞNG
 ================================ */
+let influenceLayers = {}; // lưu các vòng tròn gradient
+
 SENSORS.forEach(point => {
-    L.circleMarker([point.lat, point.lng], {
+    const marker = L.circleMarker([point.lat, point.lng], {
         radius: 10,
         color: "#0078ff",
         fillColor: "#00a6ff",
         fillOpacity: 0.9
-    })
-    .addTo(map)
-    .on("click", () => openSensor(point));
+    }).addTo(map);
+
+    marker.on("click", () => openSensor(point));
 });
 
 /* ==============================
@@ -211,7 +164,6 @@ async function getData(feed, limit = 1) {
 ================================ */
 async function openSensor(point) {
     toggleSidebar(true);
-
     document.getElementById("sensorName").innerText = point.name;
 
     const last = await getData(point.feed, 1);
@@ -219,9 +171,47 @@ async function openSensor(point) {
 
     renderGauge(point, val);
     renderStatus(point, val);
+    renderInfluence(point, val); // ✅ gradient mượt
 
     const history = await getData(point.feed, 15);
     renderChart(history);
+}
+
+/* ==============================
+   VÒNG TRÒN ẢNH HƯỞNG GRADIENT
+================================ */
+function renderInfluence(point, value) {
+    // Xóa vòng tròn cũ nếu có
+    if (influenceLayers[point.feed]) {
+        influenceLayers[point.feed].forEach(c => map.removeLayer(c));
+    }
+
+    const layers = [];
+    const steps = 8; // số vòng tròn mượt hơn
+    const maxRadius = 100 + (value / point.max_level) * 400; // bán kính tối đa
+
+    for (let i = 1; i <= steps; i++) {
+        const radius = (i / steps) * maxRadius;
+        const opacity = 0.4 * (1 - i / steps); // mờ dần
+
+        // màu gradient từ xanh → vàng → đỏ theo mực nước
+        let color;
+        if (value >= point.danger) color = `rgba(255,0,0,${opacity})`;
+        else if (value >= point.warning) color = `rgba(255,165,0,${opacity})`;
+        else color = `rgba(0,128,255,${opacity})`;
+
+        const circle = L.circle([point.lat, point.lng], {
+            radius: radius,
+            color: color,
+            fillColor: color,
+            fillOpacity: opacity,
+            weight: 1
+        }).addTo(map);
+
+        layers.push(circle);
+    }
+
+    influenceLayers[point.feed] = layers;
 }
 
 /* ==============================
@@ -235,14 +225,8 @@ toggleBtn.onclick = () => toggleSidebar();
 closeBtn.onclick = () => toggleSidebar(false);
 
 function toggleSidebar(forceOpen = null) {
-    if (forceOpen === true) {
-        sidebar.classList.add("active");
-        return;
-    }
-    if (forceOpen === false) {
-        sidebar.classList.remove("active");
-        return;
-    }
+    if (forceOpen === true) { sidebar.classList.add("active"); return; }
+    if (forceOpen === false) { sidebar.classList.remove("active"); return; }
     sidebar.classList.toggle("active");
 }
 
@@ -262,7 +246,6 @@ function renderGauge(point, value) {
 ================================ */
 function renderStatus(point, value) {
     let text, color;
-
     if (value >= point.danger) { text = "⚠️ Nguy hiểm"; color = "red"; }
     else if (value >= point.warning) { text = "🟡 Cảnh báo"; color = "orange"; }
     else { text = "🟢 An toàn"; color = "green"; }
@@ -293,7 +276,6 @@ function renderChart(history) {
 ================================ */
 document.getElementById("searchInput").addEventListener("input", function () {
     const keyword = this.value.toLowerCase();
-
     const found = SENSORS.find(s => s.name.toLowerCase().includes(keyword));
     if (!found) return;
 
