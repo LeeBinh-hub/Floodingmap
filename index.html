@@ -1,384 +1,300 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Floodingmap - WebSocket</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Floodingmap</title>
 
 <!-- Leaflet -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <!-- ApexCharts -->
 <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 
 <style>
-  body { margin:0; padding:0; font-family:Arial; }
-  #map { width: 100vw; height: 100vh; }
+    body { margin:0; padding:0; font-family:Arial; }
+    #map { width: 100vw; height: 100vh; }
 
-  /* SIDEBAR */
-  #sidebar {
-    position: fixed; top:0; right:-420px; width:420px; height:100vh;
-    background:#fff; border-left:3px solid #000; box-shadow:-4px 0 25px rgba(0,0,0,0.15);
-    transition:0.35s; z-index:9999; display:flex; flex-direction:column;
-  }
-  #sidebar.active { right:0; }
-  #sidebarHeader {
-    background: linear-gradient(135deg,#0078ff,#00a6ff); color:white; padding:16px;
-    font-size:20px; font-weight:bold; display:flex; justify-content:space-between; align-items:center;
-  }
-  #closeBtn { cursor:pointer; font-size:22px; padding:2px 8px; background:rgba(255,255,255,0.3); border-radius:4px; }
-  #sidebarContent { padding:20px; overflow-y:auto; }
+    /* SIDEBAR */
+    #sidebar {
+        position: fixed;
+        top: 0;
+        right: -420px;
+        width: 420px;
+        height: 100vh;
+        background: #ffffff;
+        border-left: 3px solid #000000;
+        box-shadow: -4px 0 25px rgba(0,0,0,0.15);
+        transition: 0.35s;
+        padding: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+    }
+    #sidebar.active { right: 0; }
 
-  #toggleSidebar {
-    position: fixed; top:20px; right:20px; background:#0078ff; color:white; padding:14px; border-radius:50%;
-    cursor:pointer; z-index:10000; box-shadow:0 4px 10px rgba(0,0,0,0.25); font-size:20px;
-  }
-  #searchBox { position: fixed; top:20px; left:20px; z-index:10000; }
-  #searchInput {
-    width:260px; padding:10px 14px; border-radius:10px; border:2px solid #0078ff; font-size:16px; outline:none;
-  }
-  .marker-value {
-    font-weight:bold;
-  }
+    #sidebarHeader {
+        background: linear-gradient(135deg, #0078ff, #00a6ff);
+        color: white;
+        padding: 16px;
+        font-size: 20px;
+        font-weight: bold;
+        display: flex; justify-content: space-between; align-items: center;
+    }
+    #closeBtn { cursor:pointer; font-size:22px; padding:2px 8px; background:rgba(255,255,255,0.3); border-radius:4px; }
+
+    #sidebarContent { padding:20px; overflow-y:auto; }
+
+    #toggleSidebar {
+        position: fixed; top:20px; right:20px;
+        background:#0078ff; color:white;
+        padding:14px; border-radius:50%; cursor:pointer;
+        z-index:10000; font-size:20px;
+        box-shadow:0 4px 10px rgba(0,0,0,0.25);
+        transition:0.25s;
+    }
+    #toggleSidebar:hover { transform:scale(1.1); }
+
+    #searchBox { position:fixed; top:20px; left:20px; z-index:10000; }
+    #searchInput {
+        width:260px; padding:10px 14px;
+        border-radius:10px; border:2px solid #0078ff;
+        font-size:16px; outline:none;
+    }
+
+    /* Tooltip */
+    .sensor-tooltip {
+        background: rgba(0,0,0,0.7);
+        color: white;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 14px;
+    }
 </style>
 </head>
 <body>
 
 <div id="toggleSidebar">☰</div>
+
 <div id="searchBox">
-  <input id="searchInput" placeholder="Tìm điểm đo..." />
+    <input id="searchInput" placeholder="Tìm điểm đo..." />
 </div>
 
 <div id="map"></div>
 
 <div id="sidebar">
-  <div id="sidebarHeader">
-    Chi tiết điểm đo
-    <span id="closeBtn">✕</span>
-  </div>
-  <div id="sidebarContent">
-    <h2 id="sensorName"></h2>
-    <div id="gaugeBox"></div>
-    <p id="statusText"></p>
-    <div id="chartBox" style="margin-top:25px;"></div>
-    <div style="margin-top:12px;"><small id="lastUpdated"></small></div>
-  </div>
+    <div id="sidebarHeader">
+        Chi tiết điểm đo
+        <span id="closeBtn">✕</span>
+    </div>
+    <div id="sidebarContent">
+        <h2 id="sensorName"></h2>
+        <div id="gaugeBox"></div>
+        <p id="statusText"></p>
+        <div id="chartBox" style="margin-top:25px;"></div>
+    </div>
 </div>
 
 <script>
-/* ===========================
-   CẤU HÌNH - Thay WS_URL = IP của ESP32
-   =========================== */
-const WS_URL = "ws://192.168.1.50:81/"; // <-- Sửa lại IP:port của ESP32 tại đây
-
-/* ===========================
-   DANH SÁCH ĐIỂM ĐO (ban đầu)
-   feed phải khớp với ESP32/Adafruit feed nếu bạn dùng cùng tên
-   =========================== */
+/* ==============================
+   DANH SÁCH ĐIỂM ĐO
+================================ */
 const SENSORS = [
-  { name: "Cầu Rồng", feed: "iotproject.mucnuoc1", lat: 16.0605, lng: 108.2237, max_level: 100, warning: 60, danger: 85 },
-  { name: "Cầu Sông Hàn", feed: "iotproject.mucnuoc2", lat: 16.0678, lng: 108.2301, max_level: 100, warning: 60, danger: 85 }
+    { name:"Cầu Rồng", lat:16.0605, lng:108.2237, min:20, mid:50, max:100, warning:60, danger:85 },
+    { name:"Cầu Sông Hàn", lat:16.0678, lng:108.2301, min:30, mid:50, max:100, warning:60, danger:85 }
 ];
 
-/* ===========================
-   MAP INIT
-   =========================== */
-const map = L.map('map').setView([16.0678, 108.2200], 13);
-L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+let sensorValues = {};
+let sensorHistory = {};
+let currentSensor = null;
+let influenceLayers = {};
 
-/* ===========================
-   MARKERS, CACHE, HISTORY
-   =========================== */
-const markerMap = {};      // feed -> marker
-const sensorCache = {};    // feed -> {value, name, timestamp}
-const history = {};        // feed -> [ {value, timestamp}, ... ]
-const HISTORY_MAX = 50;
-let influenceLayers = {};  // feed -> [circle,..]
+/* ==============================
+   MAP
+================================ */
+const map = L.map('map').setView([16.0678,108.2200],13);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
 
-// tạo marker cho mỗi điểm
+/* MARKERS & TOOLTIP */
 SENSORS.forEach(point => {
-  const m = L.circleMarker([point.lat, point.lng], {
-    radius: 10,
-    color: "#0078ff",
-    fillColor: "#00a6ff",
-    fillOpacity: 0.9
-  }).addTo(map);
+    const marker = L.circleMarker([point.lat, point.lng], {
+        radius: 10, color:"#0078ff", fillColor:"#00a6ff", fillOpacity:0.9
+    }).addTo(map);
 
-  m.on("click", () => openSensor(point));
-  markerMap[point.feed] = m;
-  history[point.feed] = []; // init history
+    marker.on("click", () => openSensor(point));
+
+    // Khởi tạo giá trị và lịch sử
+    sensorValues[point.name] = point.mid;
+    sensorHistory[point.name] = [point.mid];
+
+    // Tooltip hiển thị mực nước
+    const tooltip = L.tooltip({
+        permanent: true,
+        direction: "top",
+        className: "sensor-tooltip"
+    }).setContent(`${point.name}: ${sensorValues[point.name].toFixed(1)} cm`)
+      .setLatLng([point.lat, point.lng])
+      .addTo(map);
+
+    setInterval(() => {
+        tooltip.setContent(`${point.name}: ${sensorValues[point.name].toFixed(1)} cm`);
+    }, 1000);
 });
 
-/* ===========================
-   SIDEBAR UI HELPERS
-   =========================== */
-const sidebar = document.getElementById("sidebar");
-const toggleBtn = document.getElementById("toggleSidebar");
-const closeBtn = document.getElementById("closeBtn");
+/* ==============================
+   MỞ SIDEBAR – HIỂN THỊ DỮ LIỆU
+================================ */
+function openSensor(point) {
+    currentSensor = point;
+    toggleSidebar(true);
+    document.getElementById("sensorName").innerText = point.name;
 
-toggleBtn.onclick = () => toggleSidebar();
-closeBtn.onclick = () => toggleSidebar(false);
-
-function toggleSidebar(forceOpen = null) {
-  if (forceOpen === true) { sidebar.classList.add("active"); return; }
-  if (forceOpen === false) { sidebar.classList.remove("active"); return; }
-  sidebar.classList.toggle("active");
+    const val = sensorValues[point.name];
+    renderGauge(point, val);
+    renderStatus(point, val);
+    renderInfluence(point, val);
+    renderChart(sensorHistory[point.name]);
 }
 
-/* ===========================
-   GAUGE / STATUS / CHART
-   =========================== */
+/* ==============================
+   VÒNG TRÒN ẢNH HƯỞNG GRADIENT
+================================ */
+function renderInfluence(point, value) {
+    if (influenceLayers[point.name])
+        influenceLayers[point.name].forEach(c => map.removeLayer(c));
+
+    const layers = [];
+    const steps = 8;
+    const maxRadius = 100 + (value / point.max) * 400;
+
+    for (let i = 1; i <= steps; i++) {
+        const opacity = 0.4 * (1 - i / steps);
+        let color;
+        if (value >= point.danger) color = `rgba(255,0,0,${opacity})`;
+        else if (value >= point.warning) color = `rgba(255,165,0,${opacity})`;
+        else color = `rgba(0,128,255,${opacity})`;
+
+        layers.push(
+            L.circle([point.lat, point.lng], {
+                radius: (i / steps) * maxRadius,
+                color, fillColor:color, fillOpacity:opacity, weight:1
+            }).addTo(map)
+        );
+    }
+
+    influenceLayers[point.name] = layers;
+}
+
+/* ==============================
+   GAUGE & STATUS
+================================ */
 function renderGauge(point, value) {
-  const percent = Math.round(value / point.max_level * 100);
-  document.getElementById("gaugeBox").innerHTML = `
-    <h3>Mực nước: <span class="marker-value">${value} cm</span></h3>
-    <h1 style="color:#0078ff; font-size:40px">${percent}%</h1>
-  `;
+    const percent = Math.round(value / point.max * 100);
+    document.getElementById("gaugeBox").innerHTML = `
+        <h3>Mực nước: ${value.toFixed(1)} cm</h3>
+        <h1 style="color:#0078ff; font-size:40px">${percent}%</h1>
+    `;
 }
 
 function renderStatus(point, value) {
-  let text, color;
-  if (value >= point.danger) { text = "⚠️ Nguy hiểm"; color = "red"; }
-  else if (value >= point.warning) { text = "🟡 Cảnh báo"; color = "orange"; }
-  else { text = "🟢 An toàn"; color = "green"; }
+    let text, color;
+    if (value >= point.danger) { text="⚠️ Nguy hiểm"; color="red"; }
+    else if (value >= point.warning) { text="🟡 Cảnh báo"; color="orange"; }
+    else { text="🟢 An toàn"; color="green"; }
 
-  document.getElementById("statusText").innerHTML =
-    `<span style="color:${color}; font-size:18px; font-weight:bold;">${text}</span>`;
+    document.getElementById("statusText").innerHTML =
+        `<span style="color:${color}; font-size:18px; font-weight:bold;">${text}</span>`;
 }
 
-function renderChart(feed) {
-  const hist = history[feed] || [];
-  const values = hist.map(d => d.value).reverse();
-  const times = hist.map(d => (new Date(d.timestamp)).toLocaleTimeString()).reverse();
+/* ==============================
+   BIỂU ĐỒ
+================================ */
+function renderChart(history) {
+    const values = history.slice(-15);
+    const times = values.map((v,i)=>`#${i}`);
+    document.getElementById("chartBox").innerHTML = "";
 
-  document.getElementById("chartBox").innerHTML = "";
-
-  new ApexCharts(document.getElementById("chartBox"), {
-    chart: { type: "line", height: 260, animations: {enabled: true} },
-    series: [{ name: "Mực nước", data: values }],
-    xaxis: { categories: times },
-    stroke: { width: 3 }
-  }).render();
+    new ApexCharts(document.getElementById("chartBox"), {
+        chart:{ type:"line", height:260 },
+        series:[{ name:"Mực nước", data:values }],
+        xaxis:{ categories:times },
+        stroke:{ width:3 }
+    }).render();
 }
 
-/* ===========================
-   VÒNG TRÒN ẢNH HƯỞNG GRADIENT
-   =========================== */
-function renderInfluence(point, value) {
-  // Xóa cũ
-  if (influenceLayers[point.feed]) {
-    influenceLayers[point.feed].forEach(c => map.removeLayer(c));
-  }
-  const layers = [];
-  const steps = 8;
-  const maxRadius = 100 + (value / point.max_level) * 400;
-
-  for (let i=1;i<=steps;i++){
-    const radius = (i / steps) * maxRadius;
-    const opacity = 0.4 * (1 - i / steps);
-    let color;
-    if (value >= point.danger) color = `rgba(255,0,0,${opacity})`;
-    else if (value >= point.warning) color = `rgba(255,165,0,${opacity})`;
-    else color = `rgba(0,128,255,${opacity})`;
-
-    const circle = L.circle([point.lat, point.lng], {
-      radius: radius,
-      color: color,
-      fillColor: color,
-      fillOpacity: opacity,
-      weight: 1
-    }).addTo(map);
-
-    layers.push(circle);
-  }
-  influenceLayers[point.feed] = layers;
-}
-
-/* ===========================
-   MỞ SIDEBAR KHI CLICK MARKER (dùng cache)
-   =========================== */
-async function openSensor(point) {
-  toggleSidebar(true);
-  document.getElementById("sensorName").innerText = point.name;
-
-  const cached = sensorCache[point.feed];
-  if (cached) {
-    renderGauge(point, cached.value);
-    renderStatus(point, cached.value);
-    renderInfluence(point, cached.value);
-    document.getElementById("lastUpdated").innerText = `Cập nhật: ${new Date(cached.timestamp).toLocaleString()}`;
-    renderChart(point.feed);
-  } else {
-    // nếu chưa có dữ liệu: hiển thị loading placeholder
-    document.getElementById("gaugeBox").innerHTML = `<i>Đang chờ dữ liệu realtime...</i>`;
-    document.getElementById("statusText").innerHTML = ``;
-    document.getElementById("chartBox").innerHTML = ``;
-    document.getElementById("lastUpdated").innerText = "";
-  }
-}
-
-/* ===========================
-   TÌM KIẾM
-   =========================== */
+/* ==============================
+   SEARCH
+================================ */
 document.getElementById("searchInput").addEventListener("input", function () {
-  const keyword = this.value.toLowerCase();
-  const found = SENSORS.find(s => s.name.toLowerCase().includes(keyword));
-  if (!found) return;
-  map.setView([found.lat, found.lng], 15);
-  openSensor(found);
+    const key = this.value.toLowerCase();
+    const found = SENSORS.find(s => s.name.toLowerCase().includes(key));
+    if (found) {
+        map.setView([found.lat, found.lng], 15);
+        openSensor(found);
+    }
 });
 
-/* ===========================
-   WebSocket CONNECTION & HANDLING
-   =========================== */
-let socket = null;
-let reconnectTimer = null;
-const RECONNECT_DELAY = 3000;
+/* ==============================
+   SIDEBAR TOGGLE
+================================ */
+const sidebar = document.getElementById("sidebar");
+document.getElementById("toggleSidebar").onclick = () => toggleSidebar();
+document.getElementById("closeBtn").onclick = () => toggleSidebar(false);
 
-function connectWS() {
-  try {
-    socket = new WebSocket(WS_URL);
-
-    socket.onopen = () => {
-      console.log("WebSocket connected to", WS_URL);
-      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-      // Bạn có thể gửi 1 message yêu cầu server gửi tất cả trạng thái ban đầu
-      // socket.send(JSON.stringify({ action: "get_all" }));
-    };
-
-    socket.onmessage = (evt) => {
-      handleWSMessage(evt.data);
-    };
-
-    socket.onclose = (evt) => {
-      console.warn("WebSocket closed.", evt);
-      scheduleReconnect();
-    };
-
-    socket.onerror = (err) => {
-      console.error("WebSocket error", err);
-      // socket.close(); // sẽ trigger onclose
-    };
-  } catch (e) {
-    console.error("WS connect error", e);
-    scheduleReconnect();
-  }
+function toggleSidebar(force = null) {
+    if (force === true) sidebar.classList.add("active");
+    else if (force === false) sidebar.classList.remove("active");
+    else sidebar.classList.toggle("active");
 }
 
-function scheduleReconnect() {
-  if (reconnectTimer) return;
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
-    console.log("Reconnecting WebSocket...");
-    connectWS();
-  }, RECONNECT_DELAY);
-}
+/* ==============================
+   ANIMATION MỰC NƯỚC MƯỢT
+================================ */
+const sequence = [
+    { duration: 120000, targets: [SENSORS[0].min, SENSORS[1].mid] }, // 0-2 phút
+    { duration: 120000, targets: [SENSORS[0].max, SENSORS[1].max] }, // 2-4 phút
+    { duration: 120000, targets: [SENSORS[0].mid, SENSORS[1].mid] }  // 4-6 phút
+];
 
-/* ===========================
-   XỬ LÝ TIN NHẮN TỪ ESP32
-   - Hỗ trợ JSON: {feed, name, value, timestamp}
-   - Hoặc {name, value} / đơn giản '45' (cố gắng parse)
-   =========================== */
-function handleWSMessage(raw) {
-  let obj = null;
+let step = 0;
+let startTime = null;
+let startValues = [SENSORS[0].mid, SENSORS[1].mid];
 
-  try {
-    obj = JSON.parse(raw);
-  } catch (e) {
-    // nếu không phải json, thử parse số
-    const num = parseFloat(raw);
-    if (!isNaN(num)) {
-      // nếu nhận số thuần, cần biết feed nào - bỏ qua trừ khi ESP32 gửi feed cùng message
-      console.warn("Nhận số thuần từ WS, cần format JSON để biết feed:", raw);
-      return;
+function animate(timestamp) {
+    if (!startTime) startTime = timestamp;
+    const elapsed = timestamp - startTime;
+    const { duration, targets } = sequence[step];
+
+    const progress = Math.min(elapsed / duration, 1);
+
+    SENSORS.forEach((point, i) => {
+        const val = startValues[i] + (targets[i] - startValues[i]) * progress;
+        sensorValues[point.name] = val;
+        sensorHistory[point.name].push(val);
+        if (sensorHistory[point.name].length > 50) sensorHistory[point.name].shift();
+
+        renderInfluence(point, val);
+        if (currentSensor && currentSensor.name === point.name) {
+            renderGauge(point, val);
+            renderStatus(point, val);
+            renderChart(sensorHistory[point.name]);
+        }
+    });
+
+    if (progress < 1) {
+        requestAnimationFrame(animate);
     } else {
-      console.warn("Không parse được message WS:", raw);
-      return;
+        step++;
+        if (step < sequence.length) {
+            startValues = SENSORS.map(p => sensorValues[p.name]);
+            startTime = null;
+            requestAnimationFrame(animate);
+        }
     }
-  }
-
-  // chuẩn hiện tại: obj.feed, obj.name, obj.value, obj.timestamp
-  const feed = obj.feed || null;
-  const name = obj.name || null;
-  const value = (obj.value !== undefined) ? parseFloat(obj.value) : null;
-  const timestamp = obj.timestamp ? new Date(obj.timestamp).toISOString() : (new Date()).toISOString();
-
-  if (!feed && name) {
-    // tìm feed theo tên nếu feed không có
-    const s = SENSORS.find(x => x.name === name);
-    if (s) {
-      sFeed = s.feed;
-    }
-  }
-
-  if (!feed) {
-    // Nếu không có feed, cố gắng dò bằng name
-    const s = SENSORS.find(x => x.name === name);
-    if (s) {
-      processSensorUpdate(s.feed, name || s.name, value, timestamp);
-    } else {
-      console.warn("Không xác định feed cho message:", obj);
-    }
-  } else {
-    processSensorUpdate(feed, name, value, timestamp);
-  }
 }
 
-/* ===========================
-   CẬP NHẬT CACHE, MARKER, LỊCH SỬ, UI
-   =========================== */
-function processSensorUpdate(feed, name, value, timestamp) {
-  if (value === null || isNaN(value)) {
-    console.warn("Value invalid", feed, value);
-    return;
-  }
-
-  // update cache
-  sensorCache[feed] = { value: value, name: name, timestamp: timestamp || new Date().toISOString() };
-
-  // update history
-  if (!history[feed]) history[feed] = [];
-  history[feed].push({ value: value, timestamp: timestamp });
-  if (history[feed].length > HISTORY_MAX) history[feed].shift();
-
-  // update marker popup and color based on thresholds
-  const sensorDef = SENSORS.find(s => s.feed === feed);
-  const marker = markerMap[feed];
-  if (marker) {
-    // đổi màu marker tùy mức
-    let color = "#0078ff", fill = "#00a6ff";
-    if (sensorDef) {
-      if (value >= sensorDef.danger) { color="#ff0000"; fill="#ff6666"; }
-      else if (value >= sensorDef.warning) { color="#ff8c00"; fill="#ffc080"; }
-      else { color="#0078ff"; fill="#00a6ff"; }
-    }
-    marker.setStyle({ color: color, fillColor: fill });
-    marker.bindPopup(`<strong>${sensorDef ? sensorDef.name : (name || feed)}</strong><br>Mực nước: <b>${value} cm</b><br><small>${new Date(timestamp).toLocaleString()}</small>`);
-  }
-
-  // Nếu sidebar đang mở cho điểm này -> cập nhật UI realtime
-  const currentName = document.getElementById("sensorName").innerText;
-  if ((sensorDef && currentName === sensorDef.name) || (!sensorDef && currentName === (name || feed))) {
-    renderGauge(sensorDef || { max_level: 100 }, value);
-    if (sensorDef) renderStatus(sensorDef, value);
-    if (sensorDef) renderInfluence(sensorDef, value);
-    document.getElementById("lastUpdated").innerText = `Cập nhật: ${new Date(timestamp).toLocaleString()}`;
-    renderChart(feed);
-  }
-}
-
-/* ===========================
-   Start WebSocket
-   =========================== */
-connectWS();
-
-/* ===========================
-   OPTIONAL: Clean disconnect on page unload
-   =========================== */
-window.addEventListener("beforeunload", () => {
-  try { if (socket) socket.close(); } catch(e) {}
-});
+requestAnimationFrame(animate);
 </script>
 
 </body>
