@@ -16,7 +16,7 @@
     body { margin:0; padding:0; font-family:Arial; }
     #map { width: 100vw; height: 100vh; }
 
-    /* ========== SIDEBAR ========== */
+    /* SIDEBAR */
     #sidebar {
         position: fixed;
         top: 0;
@@ -24,7 +24,7 @@
         width: 420px;
         height: 100vh;
         background: #ffffff;
-        border-left: 3px solid #0078ff;
+        border-left: 3px solid #000000;
         box-shadow: -4px 0 25px rgba(0,0,0,0.15);
         transition: 0.35s;
         padding: 0;
@@ -40,52 +40,27 @@
         padding: 16px;
         font-size: 20px;
         font-weight: bold;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
+        display: flex; justify-content: space-between; align-items: center;
     }
-    #closeBtn {
-        cursor: pointer;
-        font-size: 22px;
-        padding: 2px 8px;
-        background: rgba(255,255,255,0.3);
-        border-radius: 4px;
-    }
+    #closeBtn { cursor:pointer; font-size:22px; padding:2px 8px; background:rgba(255,255,255,0.3); border-radius:4px; }
 
-    #sidebarContent {
-        padding: 20px;
-        overflow-y: auto;
-    }
+    #sidebarContent { padding:20px; overflow-y:auto; }
 
     #toggleSidebar {
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background: #0078ff;
-        color: white;
-        padding: 14px;
-        border-radius: 50%;
-        cursor: pointer;
-        z-index: 10000;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.25);
-        font-size: 20px;
-        transition: 0.25s;
+        position: fixed; top:20px; right:20px;
+        background:#0078ff; color:white;
+        padding:14px; border-radius:50%; cursor:pointer;
+        z-index:10000; font-size:20px;
+        box-shadow:0 4px 10px rgba(0,0,0,0.25);
+        transition:0.25s;
     }
-    #toggleSidebar:hover { transform: scale(1.1); }
+    #toggleSidebar:hover { transform:scale(1.1); }
 
-    #searchBox {
-        position: fixed;
-        top: 20px;
-        left: 20px;
-        z-index: 10000;
-    }
+    #searchBox { position:fixed; top:20px; left:20px; z-index:10000; }
     #searchInput {
-        width: 260px;
-        padding: 10px 14px;
-        border-radius: 10px;
-        border: 2px solid #0078ff;
-        font-size: 16px;
-        outline: none;
+        width:260px; padding:10px 14px;
+        border-radius:10px; border:2px solid #0078ff;
+        font-size:16px; outline:none;
     }
 </style>
 </head>
@@ -104,7 +79,6 @@
         Chi tiết điểm đo
         <span id="closeBtn">✕</span>
     </div>
-
     <div id="sidebarContent">
         <h2 id="sensorName"></h2>
         <div id="gaugeBox"></div>
@@ -115,120 +89,131 @@
 
 <script>
 /* ==============================
-   CẤU HÌNH ADAFRUIT IO
-================================ */
-const AIO_USERNAME = "quagmire_win1000";
-const AIO_KEY      = "aio_wrba09jowDt4fTmz8xGvk1QSu9nM";
-
-/* ==============================
    DANH SÁCH ĐIỂM ĐO
 ================================ */
 const SENSORS = [
-    { name: "Cầu Rồng", feed: "iotproject.mucnuoc1", lat: 16.0605, lng: 108.2237, max_level: 100, warning: 60, danger: 85 },
-    { name: "Cầu Sông Hàn", feed: "iotproject.mucnuoc2", lat: 16.0678, lng: 108.2301, max_level: 100, warning: 60, danger: 85 }
+    { name:"Cầu Rồng", feed:"iotproject.mucnuoc1", lat:16.0605, lng:108.2237, max_level:100, warning:60, danger:85 },
+    { name:"Cầu Sông Hàn", feed:"iotproject.mucnuoc2", lat:16.0678, lng:108.2301, max_level:100, warning:60, danger:85 }
 ];
+
+/* =====================================
+   CACHE GIÁ TRỊ NHẬN TỪ WEBSOCKET
+===================================== */
+let sensorValues = {};    // feed -> last value
+let sensorHistory = {};   // feed -> array values (lưu 50 điểm gần nhất)
+
+/* ==============================
+   KẾT NỐI WEBSOCKET ESP32
+================================ */
+let ws = new WebSocket("ws://192.168.1.206:81/");
+
+ws.onopen = () => {
+    console.log("WS connected");
+    ws.send(JSON.stringify({action:"get_all"}));  // yêu cầu ESP gửi toàn bộ giá trị
+};
+
+ws.onmessage = (event) => {
+    let data = JSON.parse(event.data);
+    if (!data.feed) return;
+
+    sensorValues[data.feed] = data.value;
+
+    // Lưu lịch sử
+    if (!sensorHistory[data.feed]) sensorHistory[data.feed] = [];
+    sensorHistory[data.feed].push(data.value);
+    if (sensorHistory[data.feed].length > 50)
+        sensorHistory[data.feed].shift();
+
+    // cập nhật nếu đang mở sidebar đúng điểm đo
+    if (currentSensor && currentSensor.feed === data.feed) {
+        renderGauge(currentSensor, data.value);
+        renderStatus(currentSensor, data.value);
+        renderInfluence(currentSensor, data.value);
+        renderChart(sensorHistory[data.feed]);
+    }
+};
+
+ws.onclose = () => console.warn("WS disconnected");
 
 /* ==============================
    MAP ĐÀ NẴNG
 ================================ */
-const map = L.map('map').setView([16.0678, 108.2200], 13);
-L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+const map = L.map('map').setView([16.0678,108.2200],13);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
 
-/* ==============================
-   MARKER & VÒNG TRÒN ẢNH HƯỞNG
-================================ */
-let influenceLayers = {}; // lưu các vòng tròn gradient
+/* MARKERS */
+let influenceLayers = {};
+let currentSensor = null;
 
 SENSORS.forEach(point => {
     const marker = L.circleMarker([point.lat, point.lng], {
-        radius: 10,
-        color: "#0078ff",
-        fillColor: "#00a6ff",
-        fillOpacity: 0.9
+        radius: 10, color:"#0078ff", fillColor:"#00a6ff", fillOpacity:0.9
     }).addTo(map);
 
     marker.on("click", () => openSensor(point));
 });
 
 /* ==============================
-   FETCH DATA
+   MỞ SIDEBAR – HIỂN THỊ DỮ LIỆU
 ================================ */
-async function getData(feed, limit = 1) {
-    const url = `https://io.adafruit.com/api/v2/${AIO_USERNAME}/feeds/${feed}/data?limit=${limit}&x-aio-key=${AIO_KEY}`;
-    const res = await fetch(url);
-    return await res.json();
-}
+function openSensor(point) {
+    currentSensor = point;
 
-/* ==============================
-   MỞ SIDEBAR KHI CLICK MARKER
-================================ */
-async function openSensor(point) {
     toggleSidebar(true);
     document.getElementById("sensorName").innerText = point.name;
 
-    const last = await getData(point.feed, 1);
-    const val = parseFloat(last[0].value);
+    const val = sensorValues[point.feed] ?? 0;
 
     renderGauge(point, val);
     renderStatus(point, val);
-    renderInfluence(point, val); // ✅ gradient mượt
+    renderInfluence(point, val);
 
-    const history = await getData(point.feed, 15);
-    renderChart(history);
+    renderChart(sensorHistory[point.feed] ?? []);
 }
 
 /* ==============================
    VÒNG TRÒN ẢNH HƯỞNG GRADIENT
 ================================ */
 function renderInfluence(point, value) {
-    // Xóa vòng tròn cũ nếu có
-    if (influenceLayers[point.feed]) {
+    if (influenceLayers[point.feed])
         influenceLayers[point.feed].forEach(c => map.removeLayer(c));
-    }
 
     const layers = [];
-    const steps = 8; // số vòng tròn mượt hơn
-    const maxRadius = 100 + (value / point.max_level) * 400; // bán kính tối đa
+    const steps = 8;
+    const maxRadius = 100 + (value / point.max_level) * 400;
 
     for (let i = 1; i <= steps; i++) {
-        const radius = (i / steps) * maxRadius;
-        const opacity = 0.4 * (1 - i / steps); // mờ dần
-
-        // màu gradient từ xanh → vàng → đỏ theo mực nước
+        const opacity = 0.4 * (1 - i / steps);
         let color;
+
         if (value >= point.danger) color = `rgba(255,0,0,${opacity})`;
         else if (value >= point.warning) color = `rgba(255,165,0,${opacity})`;
         else color = `rgba(0,128,255,${opacity})`;
 
-        const circle = L.circle([point.lat, point.lng], {
-            radius: radius,
-            color: color,
-            fillColor: color,
-            fillOpacity: opacity,
-            weight: 1
-        }).addTo(map);
-
-        layers.push(circle);
+        layers.push(
+            L.circle([point.lat, point.lng], {
+                radius: (i / steps) * maxRadius,
+                color, fillColor:color, fillOpacity:opacity, weight:1
+            }).addTo(map)
+        );
     }
 
     influenceLayers[point.feed] = layers;
 }
 
 /* ==============================
-   SIDEBAR TOGGLE
+   SIDEBAR
 ================================ */
 const sidebar = document.getElementById("sidebar");
-const toggleBtn = document.getElementById("toggleSidebar");
-const closeBtn = document.getElementById("closeBtn");
 
-toggleBtn.onclick = () => toggleSidebar();
-closeBtn.onclick = () => toggleSidebar(false);
-
-function toggleSidebar(forceOpen = null) {
-    if (forceOpen === true) { sidebar.classList.add("active"); return; }
-    if (forceOpen === false) { sidebar.classList.remove("active"); return; }
-    sidebar.classList.toggle("active");
+function toggleSidebar(force = null) {
+    if (force === true) sidebar.classList.add("active");
+    else if (force === false) sidebar.classList.remove("active");
+    else sidebar.classList.toggle("active");
 }
+
+document.getElementById("toggleSidebar").onclick = () => toggleSidebar();
+document.getElementById("closeBtn").onclick = () => toggleSidebar(false);
 
 /* ==============================
    GAUGE
@@ -241,46 +226,44 @@ function renderGauge(point, value) {
     `;
 }
 
-/* ==============================
-   STATUS
-================================ */
+/* STATUS */
 function renderStatus(point, value) {
     let text, color;
-    if (value >= point.danger) { text = "⚠️ Nguy hiểm"; color = "red"; }
-    else if (value >= point.warning) { text = "🟡 Cảnh báo"; color = "orange"; }
-    else { text = "🟢 An toàn"; color = "green"; }
+    if (value >= point.danger) { text="⚠️ Nguy hiểm"; color="red"; }
+    else if (value >= point.warning) { text="🟡 Cảnh báo"; color="orange"; }
+    else { text="🟢 An toàn"; color="green"; }
 
     document.getElementById("statusText").innerHTML =
         `<span style="color:${color}; font-size:18px; font-weight:bold;">${text}</span>`;
 }
 
 /* ==============================
-   BIỂU ĐỒ
+   BIỂU ĐỒ (dữ liệu lấy từ WS)
 ================================ */
 function renderChart(history) {
-    const values = history.map(d => parseFloat(d.value)).reverse();
-    const times = history.map(d => d.created_at.slice(11,19)).reverse();
+    const values = history.slice(-15);
+    const times = values.map((v,i)=>`#${i}`);
 
     document.getElementById("chartBox").innerHTML = "";
 
     new ApexCharts(document.getElementById("chartBox"), {
-        chart: { type: "line", height: 260 },
-        series: [{ name: "Mực nước", data: values }],
-        xaxis: { categories: times },
-        stroke: { width: 3 }
+        chart:{ type:"line", height:260 },
+        series:[{ name:"Mực nước", data:values }],
+        xaxis:{ categories:times },
+        stroke:{ width:3 }
     }).render();
 }
 
 /* ==============================
-   TÌM KIẾM ĐIỂM ĐO
+   SEARCH
 ================================ */
 document.getElementById("searchInput").addEventListener("input", function () {
-    const keyword = this.value.toLowerCase();
-    const found = SENSORS.find(s => s.name.toLowerCase().includes(keyword));
-    if (!found) return;
-
-    map.setView([found.lat, found.lng], 15);
-    openSensor(found);
+    const key = this.value.toLowerCase();
+    const found = SENSORS.find(s => s.name.toLowerCase().includes(key));
+    if (found) {
+        map.setView([found.lat, found.lng], 15);
+        openSensor(found);
+    }
 });
 </script>
 
